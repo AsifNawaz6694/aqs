@@ -11,8 +11,11 @@ use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Services\EkuepApiService;
+use App\Services\FileParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -133,6 +136,7 @@ class QuotationController extends Controller
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'reference' => 'nullable|string|max:100',
+            'customer_reference' => 'required|string|max:100',
             'quotation_date' => 'required|date',
             'valid_until' => 'required|date|after:quotation_date',
             'expected_delivery_date' => 'nullable|date',
@@ -143,19 +147,27 @@ class QuotationController extends Controller
             'default_vat_rate' => 'required|numeric|min:0|max:100',
             'vat_inclusive' => 'boolean',
             'currency' => 'required|string|max:3',
+            'country' => 'nullable|string|max:100',
+            'phone_code' => 'nullable|string|max:10',
+            'phone_number' => 'nullable|string|max:20',
             'terms_and_conditions' => 'nullable|string',
             'payment_terms' => 'nullable|string',
             'delivery_terms' => 'nullable|string',
             'warranty_terms' => 'nullable|string',
             'internal_notes' => 'nullable|string',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'nullable|exists:products,id',
+            'items.*.product_id' => 'nullable|integer', // Allow external products without local ID
             'items.*.item_code' => 'nullable|string|max:100',
             'items.*.name' => 'required|string|max:255',
+            'items.*.original_name' => 'nullable|string|max:255',
             'items.*.description' => 'nullable|string',
+            'items.*.image_url' => 'nullable|string|max:500',
+            'items.*.slug' => 'nullable|string|max:255',
+            'items.*.product_specifications' => 'nullable|array',
             'items.*.unit' => 'required|string|max:50',
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.requested_quantity' => 'nullable|numeric|min:0',
             'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
             'items.*.vat_rate' => 'required|numeric|min:0|max:100',
             'items.*.is_custom_item' => 'boolean',
@@ -178,6 +190,8 @@ class QuotationController extends Controller
                 'title' => $validated['title'] ?? null,
                 'description' => $validated['description'] ?? null,
                 'reference' => $validated['reference'] ?? null,
+                'customer_reference' => $validated['customer_reference'],
+                'country' => $validated['country'] ?? 'Saudi Arabia',
                 'quotation_date' => $validated['quotation_date'],
                 'valid_until' => $validated['valid_until'],
                 'expected_delivery_date' => $validated['expected_delivery_date'] ?? null,
@@ -201,15 +215,25 @@ class QuotationController extends Controller
 
             // Create items
             foreach ($validated['items'] as $index => $itemData) {
+                // Ensure product_id is either a valid ID or null (not 0 or empty string)
+                $productId = !empty($itemData['product_id']) && $itemData['product_id'] > 0
+                    ? $itemData['product_id']
+                    : null;
+
                 QuotationItem::create([
                     'quotation_id' => $quotation->id,
-                    'product_id' => $itemData['product_id'] ?? null,
+                    'product_id' => $productId,
                     'item_code' => $itemData['item_code'] ?? null,
                     'name' => $itemData['name'],
+                    'original_name' => $itemData['original_name'] ?? null,
                     'description' => $itemData['description'] ?? null,
+                    'image_url' => $itemData['image_url'] ?? null,
+                    'slug' => $itemData['slug'] ?? null,
+                    'product_specifications' => $itemData['product_specifications'] ?? null,
                     'unit' => $itemData['unit'],
                     'unit_price' => $itemData['unit_price'],
                     'quantity' => $itemData['quantity'],
+                    'requested_quantity' => $itemData['requested_quantity'] ?? null,
                     'discount_percentage' => $itemData['discount_percentage'] ?? 0,
                     'vat_rate' => $itemData['vat_rate'],
                     'vat_inclusive' => $validated['vat_inclusive'] ?? false,
@@ -290,15 +314,59 @@ class QuotationController extends Controller
             ->orderBy('name')
             ->get();
 
-        $products = Product::select('id', 'sku', 'name', 'description', 'price', 'unit', 'category')
-            ->where('status', 'active')
-            ->orderBy('name')
-            ->get();
+        // Transform quotation items to frontend format
+        $transformedItems = $quotation->items->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'product_id' => $item->product_id,
+                'sku' => $item->item_code ?? '',
+                'external_reference' => $item->item_code ?? '',
+                'name' => $item->name,
+                'original_name' => $item->original_name ?? '',
+                'description' => $item->description ?? '',
+                'quantity' => (float) $item->quantity,
+                'requested_quantity' => (float) ($item->requested_quantity ?? $item->quantity),
+                'unit' => $item->unit,
+                'unit_price' => (float) $item->unit_price,
+                'discount_type' => 'percentage',
+                'discount_value' => (float) ($item->discount_percentage ?? 0),
+                'vat_rate' => (float) $item->vat_rate,
+                'is_custom' => (bool) $item->is_custom_item,
+                'is_free' => (bool) $item->is_free,
+                'image_url' => $item->image_url,
+                'product_specifications' => $item->product_specifications,
+            ];
+        });
+
+        // Transform quotation data for frontend
+        $quotationData = [
+            'id' => $quotation->id,
+            'quotation_number' => $quotation->quotation_number,
+            'client_id' => $quotation->client_id,
+            'quotation_date' => $quotation->quotation_date->format('Y-m-d'),
+            'valid_until' => $quotation->valid_until?->format('Y-m-d'),
+            'expected_delivery_date' => $quotation->expected_delivery_date?->format('Y-m-d'),
+            'reference' => $quotation->reference,
+            'customer_reference' => $quotation->customer_reference,
+            'currency' => $quotation->currency,
+            'country' => $quotation->country ?? 'Saudi Arabia',
+            'discount_type' => 'percentage',
+            'discount_value' => (float) ($quotation->discount_percentage ?? 0),
+            'transport_charges' => (float) ($quotation->transport_charges ?? 0),
+            'transport_free' => (bool) $quotation->transport_free,
+            'transport_notes' => $quotation->transport_notes,
+            'internal_notes' => $quotation->internal_notes,
+            'terms_and_conditions' => $quotation->terms_and_conditions,
+            'total_amperes' => $quotation->total_amperes,
+            'items' => $transformedItems,
+        ];
 
         return Inertia::render('Quotations/Edit', [
-            'quotation' => $quotation,
+            'quotation' => $quotationData,
             'clients' => $clients,
-            'products' => $products,
+            'vatRate' => (float) SystemSetting::getValue('default_vat_rate', 15),
+            'defaultTerms' => SystemSetting::getValue('default_terms_and_conditions', ''),
+            'currencies' => ['SAR', 'AED', 'USD', 'EUR'],
         ]);
     }
 
@@ -316,6 +384,7 @@ class QuotationController extends Controller
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'reference' => 'nullable|string|max:100',
+            'customer_reference' => 'required|string|max:100',
             'quotation_date' => 'required|date',
             'valid_until' => 'required|date|after:quotation_date',
             'expected_delivery_date' => 'nullable|date',
@@ -326,6 +395,9 @@ class QuotationController extends Controller
             'default_vat_rate' => 'required|numeric|min:0|max:100',
             'vat_inclusive' => 'boolean',
             'currency' => 'required|string|max:3',
+            'country' => 'nullable|string|max:100',
+            'phone_code' => 'nullable|string|max:10',
+            'phone_number' => 'nullable|string|max:20',
             'terms_and_conditions' => 'nullable|string',
             'payment_terms' => 'nullable|string',
             'delivery_terms' => 'nullable|string',
@@ -333,13 +405,18 @@ class QuotationController extends Controller
             'internal_notes' => 'nullable|string',
             'items' => 'required|array|min:1',
             'items.*.id' => 'nullable|exists:quotation_items,id',
-            'items.*.product_id' => 'nullable|exists:products,id',
+            'items.*.product_id' => 'nullable|integer', // Allow external products without local ID
             'items.*.item_code' => 'nullable|string|max:100',
             'items.*.name' => 'required|string|max:255',
+            'items.*.original_name' => 'nullable|string|max:255',
             'items.*.description' => 'nullable|string',
+            'items.*.image_url' => 'nullable|string|max:500',
+            'items.*.slug' => 'nullable|string|max:255',
+            'items.*.product_specifications' => 'nullable|array',
             'items.*.unit' => 'required|string|max:50',
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.requested_quantity' => 'nullable|numeric|min:0',
             'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
             'items.*.vat_rate' => 'required|numeric|min:0|max:100',
             'items.*.is_custom_item' => 'boolean',
@@ -360,6 +437,8 @@ class QuotationController extends Controller
                 'title' => $validated['title'] ?? null,
                 'description' => $validated['description'] ?? null,
                 'reference' => $validated['reference'] ?? null,
+                'customer_reference' => $validated['customer_reference'],
+                'country' => $validated['country'] ?? 'Saudi Arabia',
                 'quotation_date' => $validated['quotation_date'],
                 'valid_until' => $validated['valid_until'],
                 'expected_delivery_date' => $validated['expected_delivery_date'] ?? null,
@@ -386,15 +465,25 @@ class QuotationController extends Controller
 
             // Update or create items
             foreach ($validated['items'] as $index => $itemData) {
+                // Ensure product_id is either a valid ID or null (not 0 or empty string)
+                $productId = !empty($itemData['product_id']) && $itemData['product_id'] > 0
+                    ? $itemData['product_id']
+                    : null;
+
                 $itemPayload = [
                     'quotation_id' => $quotation->id,
-                    'product_id' => $itemData['product_id'] ?? null,
+                    'product_id' => $productId,
                     'item_code' => $itemData['item_code'] ?? null,
                     'name' => $itemData['name'],
+                    'original_name' => $itemData['original_name'] ?? null,
                     'description' => $itemData['description'] ?? null,
+                    'image_url' => $itemData['image_url'] ?? null,
+                    'slug' => $itemData['slug'] ?? null,
+                    'product_specifications' => $itemData['product_specifications'] ?? null,
                     'unit' => $itemData['unit'],
                     'unit_price' => $itemData['unit_price'],
                     'quantity' => $itemData['quantity'],
+                    'requested_quantity' => $itemData['requested_quantity'] ?? null,
                     'discount_percentage' => $itemData['discount_percentage'] ?? 0,
                     'vat_rate' => $itemData['vat_rate'],
                     'vat_inclusive' => $validated['vat_inclusive'] ?? false,
@@ -772,22 +861,290 @@ class QuotationController extends Controller
     }
 
     /**
-     * Search products for autocomplete.
+     * Search products for autocomplete from EKUEP API.
      */
     public function searchProducts(Request $request)
     {
         $search = $request->get('search', '');
 
-        $products = Product::select('id', 'sku', 'name', 'description', 'price', 'unit', 'category')
-            ->where('status', 'active')
-            ->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('sku', 'like', "%{$search}%")
-                    ->orWhere('category', 'like', "%{$search}%");
-            })
-            ->limit(20)
-            ->get();
+        if (empty(trim($search))) {
+            return response()->json(['products' => []]);
+        }
+
+        // Fetch products from EKUEP API
+        $ekuepService = new EkuepApiService();
+        $products = $ekuepService->searchProducts($search, 20);
 
         return response()->json(['products' => $products]);
+    }
+
+    /**
+     * Parse uploaded file and return extracted data.
+     */
+    public function parseFile(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|max:10240', // Max 10MB
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $file = $request->file('file');
+        $extension = strtolower($file->getClientOriginalExtension());
+        $allowedExtensions = ['xlsx', 'xls', 'csv', 'docx'];
+
+        if (!in_array($extension, $allowedExtensions)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid file format. Supported formats: ' . implode(', ', $allowedExtensions),
+            ], 422);
+        }
+
+        try {
+            $parser = new FileParserService();
+            $parsedData = $parser->parse($file);
+
+            // Validate minimum requirements
+            if (!$parser->validateMinimumColumns($parsedData)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'File must contain at least 2 columns.',
+                ], 422);
+            }
+
+            if (!$parser->validateMinimumRows($parsedData)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'File must contain at least 1 data row.',
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $parsedData,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to parse file: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Search products by references from parsed file using EKUEP API.
+     */
+    public function searchProductsByReferences(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'references' => 'required|array|min:1',
+            'references.*.reference' => 'required|string',
+            'references.*.quantity' => 'nullable|numeric|min:0',
+            'references.*.name' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        // Extract all references for batch lookup
+        $referenceCodes = array_map(
+            fn($item) => trim($item['reference']),
+            $request->references
+        );
+
+        // Search EKUEP API for all references
+        $ekuepService = new EkuepApiService();
+        $foundProducts = $ekuepService->searchByReferences($referenceCodes);
+
+        $results = [];
+
+        foreach ($request->references as $item) {
+            $reference = trim($item['reference']);
+            $quantity = $item['quantity'] ?? 1;
+            $originalName = $item['name'] ?? null;
+
+            // Get product from API results
+            $product = $foundProducts[$reference] ?? null;
+
+            $results[] = [
+                'reference' => $reference,
+                'original_name' => $originalName,
+                'requested_quantity' => $quantity,
+                'product' => $product,
+                'found' => $product !== null,
+            ];
+        }
+
+        $foundCount = collect($results)->where('found', true)->count();
+        $notFoundCount = collect($results)->where('found', false)->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'items' => $results,
+                'summary' => [
+                    'total' => count($results),
+                    'found' => $foundCount,
+                    'not_found' => $notFoundCount,
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Quick create quotation from file upload (combines parsing and creation).
+     */
+    public function createFromFile(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|max:10240',
+            'reference_column' => 'required|integer|min:0',
+            'quantity_column' => 'required|integer|min:0',
+            'name_column' => 'nullable|integer|min:0',
+            'client_id' => 'required|exists:clients,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $parser = new FileParserService();
+            $parsedData = $parser->parse($request->file('file'));
+
+            // Extract product data from parsed file
+            $productData = $parser->extractProductData(
+                $parsedData,
+                $request->reference_column,
+                $request->quantity_column,
+                $request->name_column
+            );
+
+            // Get references for EKUEP API lookup
+            $referenceCodes = array_column($productData, 'reference');
+
+            // Search EKUEP API for all references
+            $ekuepService = new EkuepApiService();
+            $foundProducts = $ekuepService->searchByReferences($referenceCodes);
+
+            // Match products with requested data
+            $items = [];
+            foreach ($productData as $item) {
+                $product = $foundProducts[$item['reference']] ?? null;
+
+                if ($product) {
+                    $items[] = [
+                        'product' => $product,
+                        'quantity' => $item['quantity'],
+                        'original_name' => $item['name'],
+                        'requested_quantity' => $item['quantity'],
+                    ];
+                }
+            }
+
+            if (empty($items)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No matching products found for the references in the file.',
+                ], 422);
+            }
+
+            // Create quotation
+            DB::beginTransaction();
+
+            $client = Client::findOrFail($request->client_id);
+            $validityDays = (int) SystemSetting::getValue('quotation_validity_days', 30);
+            $vatRate = (float) SystemSetting::getValue('default_vat_rate', 15);
+
+            $quotation = Quotation::create([
+                'quotation_number' => Quotation::generateQuotationNumber(),
+                'client_id' => $client->id,
+                'user_id' => auth()->id(),
+                'quotation_date' => now()->format('Y-m-d'),
+                'valid_until' => now()->addDays($validityDays)->format('Y-m-d'),
+                'status' => Quotation::STATUS_DRAFT,
+                'default_vat_rate' => $vatRate,
+                'currency' => SystemSetting::getValue('default_currency', 'SAR'),
+                'client_contact_name' => $client->contact_person ?? $client->name,
+                'client_contact_email' => $client->contact_email ?? $client->email,
+                'client_contact_phone' => $client->contact_phone ?? $client->phone,
+            ]);
+
+            // Create items from EKUEP API product data
+            foreach ($items as $itemData) {
+                QuotationItem::createFromApiProduct(
+                    $itemData['product'],
+                    $quotation,
+                    $itemData['quantity'],
+                    [
+                        'original_name' => $itemData['original_name'],
+                        'requested_quantity' => $itemData['requested_quantity'],
+                    ]
+                );
+            }
+
+            // Record history
+            $quotation->statusHistory()->create([
+                'user_id' => auth()->id(),
+                'from_status' => null,
+                'to_status' => Quotation::STATUS_DRAFT,
+                'action' => 'created_from_file',
+                'notes' => 'Quotation created from file: ' . $request->file('file')->getClientOriginalName(),
+            ]);
+
+            ActivityLog::log(
+                'created',
+                "Created quotation {$quotation->quotation_number} from file upload",
+                $quotation,
+                auth()->user(),
+                ['source_file' => $request->file('file')->getClientOriginalName()],
+                [],
+                'quotations'
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'quotation_id' => $quotation->id,
+                    'quotation_number' => $quotation->quotation_number,
+                    'items_count' => count($items),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create quotation: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get available currencies with their countries.
+     */
+    public function getCurrencies()
+    {
+        return response()->json([
+            'currencies' => [
+                ['code' => 'SAR', 'name' => 'Saudi Riyal', 'country' => 'KSA', 'symbol' => 'SAR'],
+                ['code' => 'AED', 'name' => 'UAE Dirham', 'country' => 'UAE', 'symbol' => 'AED'],
+                ['code' => 'USD', 'name' => 'US Dollar', 'country' => 'USA', 'symbol' => '$'],
+                ['code' => 'EUR', 'name' => 'Euro', 'country' => 'EU', 'symbol' => '€'],
+            ],
+        ]);
     }
 }

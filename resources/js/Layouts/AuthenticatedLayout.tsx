@@ -96,7 +96,7 @@ export default function Authenticated({
         <div className="min-h-screen bg-slate-50">
             {/* Top Navigation */}
             <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between h-16">
                         {/* Logo & Main Nav */}
                         <div className="flex items-center">
@@ -105,12 +105,12 @@ export default function Authenticated({
                                 <img
                                     src="https://cdn.ekuep.com/v4ekuep/ekuep-ksa-v4/imgs/ekuep-logo-en.svg"
                                     alt="Ekuep"
-                                    className="h-8 w-auto"
+                                    className="h-10 w-auto"
                                 />
                             </Link>
 
                             {/* Desktop Navigation */}
-                            <div className="hidden lg:ml-10 lg:flex lg:items-center lg:space-x-1">
+                            <div className="hidden lg:ml-8 lg:flex lg:items-center lg:space-x-1">
                                 {navigation
                                     .filter((item) => item.show)
                                     .map((item) => (

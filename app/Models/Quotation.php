@@ -23,6 +23,7 @@ class Quotation extends Model
         'title',
         'description',
         'reference',
+        'customer_reference',
         'quotation_date',
         'valid_until',
         'expected_delivery_date',
@@ -33,12 +34,14 @@ class Quotation extends Model
         'total_before_vat',
         'total_vat',
         'grand_total',
+        'total_amperes',
         'transport_charges',
         'transport_free',
         'transport_notes',
         'default_vat_rate',
         'vat_inclusive',
         'currency',
+        'country',
         'exchange_rate',
         'terms_and_conditions',
         'payment_terms',
@@ -71,6 +74,7 @@ class Quotation extends Model
             'total_before_vat' => 'decimal:2',
             'total_vat' => 'decimal:2',
             'grand_total' => 'decimal:2',
+            'total_amperes' => 'decimal:2',
             'transport_charges' => 'decimal:2',
             'transport_free' => 'boolean',
             'default_vat_rate' => 'decimal:2',
@@ -190,12 +194,18 @@ class Quotation extends Model
         $subtotal = 0;
         $totalDiscount = 0;
         $totalVat = 0;
+        $totalAmperes = 0;
 
         foreach ($this->items as $item) {
             if (!$item->is_free) {
                 $subtotal += $item->line_total_before_discount;
                 $totalDiscount += $item->discount_amount * $item->quantity;
                 $totalVat += $item->vat_amount;
+            }
+
+            // Calculate total amperage from items with specifications
+            if ($item->total_amperage !== null) {
+                $totalAmperes += $item->total_amperage;
             }
         }
 
@@ -216,8 +226,69 @@ class Quotation extends Model
         $this->total_before_vat = $totalBeforeVat + $transportCharges;
         $this->total_vat = $totalVat + $transportVat;
         $this->grand_total = $this->total_before_vat + $this->total_vat;
+        $this->total_amperes = $totalAmperes;
 
         $this->save();
+    }
+
+    /**
+     * Get items with complete electrical specifications.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function getItemsWithCompleteSpecs()
+    {
+        return $this->items->filter(fn($item) => $item->hasCompleteElectricalSpecs());
+    }
+
+    /**
+     * Get items with incomplete electrical specifications.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function getItemsWithIncompleteSpecs()
+    {
+        return $this->items->filter(fn($item) => $item->hasElectricalSpecs() && !$item->hasCompleteElectricalSpecs());
+    }
+
+    /**
+     * Get items without any electrical specifications.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function getItemsWithoutSpecs()
+    {
+        return $this->items->filter(fn($item) => !$item->hasElectricalSpecs());
+    }
+
+    /**
+     * Check if quotation has any electrical specifications.
+     *
+     * @return bool
+     */
+    public function hasElectricalSpecs(): bool
+    {
+        return $this->items->contains(fn($item) => $item->hasElectricalSpecs());
+    }
+
+    /**
+     * Get the discount amount (for display).
+     *
+     * @return float
+     */
+    public function getDiscountAmountAttribute(): float
+    {
+        return round($this->subtotal * ($this->discount_percentage / 100), 2);
+    }
+
+    /**
+     * Get total taxable amount (after discount, before VAT).
+     *
+     * @return float
+     */
+    public function getTotalTaxableAmountAttribute(): float
+    {
+        return round($this->subtotal - $this->discount_amount, 2);
     }
 
     // Status checks

@@ -23,6 +23,8 @@ class Product extends Model
         'slug',
         'sku',
         'barcode',
+        'external_id',
+        'external_reference',
         'description',
         'short_description',
         'category',
@@ -38,11 +40,16 @@ class Product extends Model
         'status',
         'is_featured',
         'image_path',
+        'product_url',
+        'spec_sheet_url',
         'gallery',
         'specifications',
         'dimensions',
         'weight',
         'weight_unit',
+        'voltage',
+        'power',
+        'frequency',
         'meta_title',
         'meta_description',
         'created_by',
@@ -204,5 +211,145 @@ class Product extends Model
     public function scopeSearch($query, string $term)
     {
         return $query->whereRaw("MATCH(name, description, sku) AGAINST(? IN BOOLEAN MODE)", [$term]);
+    }
+
+    /**
+     * Scope to search products by term (simpler version for LIKE queries).
+     */
+    public function scopeSearchTerm($query, string $term)
+    {
+        return $query->where(function ($q) use ($term) {
+            $q->where('name', 'like', "%{$term}%")
+              ->orWhere('sku', 'like', "%{$term}%")
+              ->orWhere('external_reference', 'like', "%{$term}%")
+              ->orWhere('barcode', 'like', "%{$term}%")
+              ->orWhere('category', 'like', "%{$term}%");
+        });
+    }
+
+    /**
+     * Get the amperage for this product based on power and voltage.
+     *
+     * @return float|null
+     */
+    public function getAmperageAttribute(): ?float
+    {
+        $power = $this->extractNumericValue($this->power);
+        $voltage = $this->extractNumericValue($this->voltage);
+
+        if ($power > 0 && $voltage > 0) {
+            return round($power / $voltage, 2);
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract numeric value from a string (handles ranges like "1800-2000").
+     *
+     * @param mixed $value
+     * @return float
+     */
+    protected function extractNumericValue(mixed $value): float
+    {
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        if (!is_string($value) || empty($value)) {
+            return 0;
+        }
+
+        // Handle ranges like "1800-2000" - use higher end for safety
+        if (preg_match('/(\d+)\s*-\s*(\d+)/', $value, $matches)) {
+            return max((float) $matches[1], (float) $matches[2]);
+        }
+
+        // Extract first number found
+        if (preg_match('/(\d+(?:\.\d+)?)/', $value, $matches)) {
+            return (float) $matches[1];
+        }
+
+        return 0;
+    }
+
+    /**
+     * Get formatted dimensions string.
+     *
+     * @return string|null
+     */
+    public function getFormattedDimensionsAttribute(): ?string
+    {
+        if (!$this->dimensions) {
+            return null;
+        }
+
+        $dims = $this->dimensions;
+        $width = $dims['width'] ?? null;
+        $length = $dims['length'] ?? null;
+        $height = $dims['height'] ?? null;
+
+        if ($width && $length && $height) {
+            return "{$length} x {$width} x {$height}";
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if product has electrical specifications.
+     *
+     * @return bool
+     */
+    public function hasElectricalSpecs(): bool
+    {
+        return !empty($this->power) || !empty($this->voltage);
+    }
+
+    /**
+     * Get all electrical specifications as an array.
+     *
+     * @return array
+     */
+    public function getElectricalSpecsAttribute(): array
+    {
+        $specs = [];
+
+        if ($this->voltage) {
+            $specs['voltage'] = $this->voltage;
+        }
+        if ($this->power) {
+            $specs['power'] = $this->power;
+        }
+        if ($this->frequency) {
+            $specs['frequency'] = $this->frequency;
+        }
+        if ($this->dimensions) {
+            $specs['dimensions'] = $this->dimensions;
+        }
+        if ($this->weight) {
+            $specs['weight'] = $this->weight . ' ' . ($this->weight_unit ?? 'kg');
+        }
+        if ($this->spec_sheet_url) {
+            $specs['spec_sheet_url'] = $this->spec_sheet_url;
+        }
+
+        return $specs;
+    }
+
+    /**
+     * Get the power requirement string with calculation.
+     *
+     * @return string|null
+     */
+    public function getPowerRequirementAttribute(): ?string
+    {
+        $amperage = $this->amperage;
+
+        if ($this->power && $this->voltage && $amperage) {
+            return "{$this->power} / {$this->voltage} = {$amperage} A";
+        }
+
+        return null;
     }
 }

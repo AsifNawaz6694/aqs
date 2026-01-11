@@ -85,6 +85,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/quotations', [QuotationController::class, 'index'])->name('quotations.index')->middleware('permission:quotations.view');
     Route::get('/quotations/export', [QuotationController::class, 'export'])->name('quotations.export')->middleware('permission:quotations.export');
     Route::get('/quotations/search-products', [QuotationController::class, 'searchProducts'])->name('quotations.search-products')->middleware('permission:quotations.create');
+    Route::get('/quotations/currencies', [QuotationController::class, 'getCurrencies'])->name('quotations.currencies')->middleware('permission:quotations.view');
+    Route::post('/quotations/parse-file', [QuotationController::class, 'parseFile'])->name('quotations.parse-file')->middleware('permission:quotations.create');
+    Route::post('/quotations/search-by-references', [QuotationController::class, 'searchProductsByReferences'])->name('quotations.search-by-references')->middleware('permission:quotations.create');
+    Route::post('/quotations/create-from-file', [QuotationController::class, 'createFromFile'])->name('quotations.create-from-file')->middleware('permission:quotations.create');
     Route::get('/quotations/create', [QuotationController::class, 'create'])->name('quotations.create')->middleware('permission:quotations.create');
     Route::post('/quotations', [QuotationController::class, 'store'])->name('quotations.store')->middleware('permission:quotations.create');
     Route::get('/quotations/{quotation}', [QuotationController::class, 'show'])->name('quotations.show')->middleware('permission:quotations.view');

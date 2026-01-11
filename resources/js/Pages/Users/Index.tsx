@@ -2,6 +2,9 @@ import { useState, useCallback, useRef } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
+// Helper to get today's date in YYYY-MM-DD format
+const getTodayDate = () => new Date().toISOString().split('T')[0];
+
 interface User {
     id: number;
     name: string;
@@ -64,7 +67,13 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
     const [isLoading, setIsLoading] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const hasActiveFilters = roleId || status || dateFrom || dateTo;
+    // Track if date filters have been explicitly set by user
+    const [datesModified, setDatesModified] = useState({
+        date_from: !!filters.date_from,
+        date_to: !!filters.date_to,
+    });
+
+    const hasActiveFilters = roleId || status || (dateFrom && datesModified.date_from) || (dateTo && datesModified.date_to);
 
     const applyFilters = useCallback((params: Record<string, string>) => {
         if (debounceRef.current) {
@@ -93,6 +102,19 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
     };
 
     const handleFilterChange = (filterName: string, value: string) => {
+        // Track date modifications
+        if (filterName === 'date_from') {
+            setDatesModified(prev => ({ ...prev, date_from: true }));
+        }
+        if (filterName === 'date_to') {
+            setDatesModified(prev => ({ ...prev, date_to: true }));
+        }
+
+        const newDatesModified = {
+            date_from: filterName === 'date_from' ? true : datesModified.date_from,
+            date_to: filterName === 'date_to' ? true : datesModified.date_to,
+        };
+
         const newFilters: Record<string, string> = {
             search,
             role_id: filterName === 'role_id' ? value : roleId,
@@ -106,8 +128,13 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
         if (filterName === 'date_from') setDateFrom(value);
         if (filterName === 'date_to') setDateTo(value);
 
+        // Only include dates in params if they've been modified
         const params = Object.fromEntries(
-            Object.entries(newFilters).filter(([, v]) => v !== '' && v !== null)
+            Object.entries(newFilters).filter(([key, v]) => {
+                if (key === 'date_from') return v !== '' && newDatesModified.date_from;
+                if (key === 'date_to') return v !== '' && newDatesModified.date_to;
+                return v !== '' && v !== null;
+            })
         );
 
         setIsLoading(true);
@@ -125,6 +152,7 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
         setStatus('');
         setDateFrom('');
         setDateTo('');
+        setDatesModified({ date_from: false, date_to: false });
         router.get('/users', {}, {
             preserveState: true,
             preserveScroll: true,
@@ -176,9 +204,8 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
         >
             <Head title="Users" />
 
-            <div className="py-6">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                    {success && (
+            <div className="space-y-6">
+                {success && (
                         <div className="mb-4 rounded-lg bg-green-50 p-4 border border-green-200">
                             <p className="text-sm text-green-700">{success}</p>
                         </div>
@@ -300,18 +327,22 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
                                             <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
                                             <input
                                                 type="date"
-                                                value={dateFrom}
+                                                value={dateFrom || getTodayDate()}
                                                 onChange={(e) => handleFilterChange('date_from', e.target.value)}
-                                                className="w-full border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                                className={`w-full rounded-lg focus:ring-indigo-500 focus:border-indigo-500 ${
+                                                    datesModified.date_from ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
+                                                }`}
                                             />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
                                             <input
                                                 type="date"
-                                                value={dateTo}
+                                                value={dateTo || getTodayDate()}
                                                 onChange={(e) => handleFilterChange('date_to', e.target.value)}
-                                                className="w-full border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                                className={`w-full rounded-lg focus:ring-indigo-500 focus:border-indigo-500 ${
+                                                    datesModified.date_to ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'
+                                                }`}
                                             />
                                         </div>
                                     </div>
@@ -425,7 +456,6 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
                         )}
                     </div>
                 </div>
-            </div>
         </AuthenticatedLayout>
     );
 }

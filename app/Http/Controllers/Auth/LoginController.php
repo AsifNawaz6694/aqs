@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\TwoFactorCode;
+use App\Models\ActivityLog;
 use App\Mail\TwoFactorCodeMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -53,6 +54,20 @@ class LoginController extends Controller
         // Validate credentials
         if (!$user || !Hash::check($request->password, $user->password)) {
             RateLimiter::hit($throttleKey);
+
+            // Log failed login attempt
+            ActivityLog::log(
+                event: 'login_failed',
+                description: "Failed login attempt for: {$request->email}",
+                subject: $user,
+                causer: null,
+                properties: [
+                    'email' => $request->email,
+                    'reason' => !$user ? 'User not found' : 'Invalid password',
+                ],
+                module: 'authentication'
+            );
+
             return back()->withErrors([
                 'email' => 'These credentials do not match our records.',
             ]);
@@ -162,6 +177,21 @@ class LoginController extends Controller
             'last_login_ip' => $request->ip(),
         ]);
 
+        // Log successful login
+        ActivityLog::log(
+            event: 'login',
+            description: "User logged in: {$user->name}",
+            subject: $user,
+            causer: $user,
+            properties: [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'role' => $user->role?->name,
+                'login_method' => '2FA Email',
+            ],
+            module: 'authentication'
+        );
+
         // Regenerate session
         $request->session()->regenerate();
 
@@ -219,6 +249,23 @@ class LoginController extends Controller
      */
     public function logout(Request $request)
     {
+        $user = Auth::user();
+
+        // Log logout before clearing session
+        if ($user) {
+            ActivityLog::log(
+                event: 'logout',
+                description: "User logged out: {$user->name}",
+                subject: $user,
+                causer: $user,
+                properties: [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ],
+                module: 'authentication'
+            );
+        }
+
         Auth::logout();
 
         $request->session()->invalidate();

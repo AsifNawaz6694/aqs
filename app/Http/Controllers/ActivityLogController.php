@@ -35,6 +35,11 @@ class ActivityLogController extends Controller
             $query->where('subject_type', $request->subject_type);
         }
 
+        // Filter by module
+        if ($request->filled('module')) {
+            $query->where('module', $request->module);
+        }
+
         // Filter by date range
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
@@ -55,13 +60,24 @@ class ActivityLogController extends Controller
         $logs->getCollection()->transform(function ($log) {
             return [
                 'id' => $log->id,
+                'log_name' => $log->log_name,
                 'event' => $log->event,
                 'description' => $log->description,
                 'subject_type' => $log->subject_type ? class_basename($log->subject_type) : null,
+                'subject_type_full' => $log->subject_type,
                 'subject_id' => $log->subject_id,
+                'causer_id' => $log->causer_id,
                 'causer_name' => $log->causer instanceof User ? $log->causer->name : 'System',
                 'causer_email' => $log->causer instanceof User ? $log->causer->email : null,
+                'causer_role' => $log->causer instanceof User ? ($log->causer->role?->name ?? 'N/A') : null,
+                'module' => $log->module,
+                'properties' => $log->properties ?? [],
+                'changes' => $log->changes ?? [],
+                'has_changes' => !empty($log->changes),
                 'ip_address' => $log->ip_address,
+                'user_agent' => $log->user_agent,
+                'url' => $log->url,
+                'method' => $log->method,
                 'created_at' => $log->created_at->format('Y-m-d H:i:s'),
                 'created_at_human' => $log->created_at->diffForHumans(),
             ];
@@ -75,13 +91,47 @@ class ActivityLogController extends Controller
             ->filter()
             ->map(fn($type) => ['value' => $type, 'label' => class_basename($type)])
             ->values();
+        $modules = ActivityLog::distinct()->pluck('module')->filter()->values();
 
         return Inertia::render('ActivityLogs/Index', [
             'logs' => $logs,
             'users' => $users,
             'events' => $events,
             'subjectTypes' => $subjectTypes,
-            'filters' => $request->only(['user_id', 'event', 'subject_type', 'date_from', 'date_to', 'search']),
+            'modules' => $modules,
+            'filters' => $request->only(['user_id', 'event', 'subject_type', 'module', 'date_from', 'date_to', 'search']),
+        ]);
+    }
+
+    /**
+     * Display the specified activity log.
+     */
+    public function show(ActivityLog $activityLog)
+    {
+        $activityLog->load('causer', 'subject');
+
+        return response()->json([
+            'id' => $activityLog->id,
+            'log_name' => $activityLog->log_name,
+            'event' => $activityLog->event,
+            'description' => $activityLog->description,
+            'subject_type' => $activityLog->subject_type ? class_basename($activityLog->subject_type) : null,
+            'subject_type_full' => $activityLog->subject_type,
+            'subject_id' => $activityLog->subject_id,
+            'subject_data' => $activityLog->subject ? $activityLog->subject->toArray() : null,
+            'causer_id' => $activityLog->causer_id,
+            'causer_name' => $activityLog->causer instanceof User ? $activityLog->causer->name : 'System',
+            'causer_email' => $activityLog->causer instanceof User ? $activityLog->causer->email : null,
+            'causer_role' => $activityLog->causer instanceof User ? ($activityLog->causer->role?->name ?? 'N/A') : null,
+            'module' => $activityLog->module,
+            'properties' => $activityLog->properties ?? [],
+            'changes' => $activityLog->changes ?? [],
+            'ip_address' => $activityLog->ip_address,
+            'user_agent' => $activityLog->user_agent,
+            'url' => $activityLog->url,
+            'method' => $activityLog->method,
+            'created_at' => $activityLog->created_at->format('Y-m-d H:i:s'),
+            'created_at_human' => $activityLog->created_at->diffForHumans(),
         ]);
     }
 

@@ -2,6 +2,9 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useState } from 'react';
 
+// Helper to get today's date in YYYY-MM-DD format
+const getTodayDate = () => new Date().toISOString().split('T')[0];
+
 interface Client {
     id: number;
     display_name: string;
@@ -90,6 +93,12 @@ export default function Index({ quotations, clients = [], users = [], statuses =
         date_to: filters.date_to || '',
     });
 
+    // Track if date filters have been explicitly set by user
+    const [datesModified, setDatesModified] = useState({
+        date_from: !!filters.date_from,
+        date_to: !!filters.date_to,
+    });
+
     const hasPermission = (permission: string) => {
         return auth.user?.permissions?.includes(permission);
     };
@@ -98,9 +107,21 @@ export default function Index({ quotations, clients = [], users = [], statuses =
         e.preventDefault();
         const params: Record<string, string> = {};
         Object.entries(filterValues).forEach(([key, value]) => {
-            if (value) params[key] = value;
+            // Only include date filters if they've been explicitly modified
+            if (key === 'date_from' || key === 'date_to') {
+                if (value && datesModified[key as 'date_from' | 'date_to']) {
+                    params[key] = value;
+                }
+            } else if (value) {
+                params[key] = value;
+            }
         });
         router.get(route('quotations.index'), params, { preserveState: true });
+    };
+
+    const handleDateChange = (field: 'date_from' | 'date_to', value: string) => {
+        setFilterValues({ ...filterValues, [field]: value });
+        setDatesModified({ ...datesModified, [field]: true });
     };
 
     const handleSort = (field: string) => {
@@ -125,6 +146,7 @@ export default function Index({ quotations, clients = [], users = [], statuses =
             date_from: '',
             date_to: '',
         });
+        setDatesModified({ date_from: false, date_to: false });
         router.get(route('quotations.index'));
     };
 
@@ -293,18 +315,22 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Date From</label>
                                         <input
                                             type="date"
-                                            value={filterValues.date_from}
-                                            onChange={(e) => setFilterValues({ ...filterValues, date_from: e.target.value })}
-                                            className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                            value={filterValues.date_from || getTodayDate()}
+                                            onChange={(e) => handleDateChange('date_from', e.target.value)}
+                                            className={`block w-full rounded-xl shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm ${
+                                                datesModified.date_from ? 'border-violet-400 bg-violet-50' : 'border-slate-300'
+                                            }`}
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Date To</label>
                                         <input
                                             type="date"
-                                            value={filterValues.date_to}
-                                            onChange={(e) => setFilterValues({ ...filterValues, date_to: e.target.value })}
-                                            className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                            value={filterValues.date_to || getTodayDate()}
+                                            onChange={(e) => handleDateChange('date_to', e.target.value)}
+                                            className={`block w-full rounded-xl shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm ${
+                                                datesModified.date_to ? 'border-violet-400 bg-violet-50' : 'border-slate-300'
+                                            }`}
                                         />
                                     </div>
                                 </div>

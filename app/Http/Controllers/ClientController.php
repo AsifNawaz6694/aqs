@@ -93,6 +93,11 @@ class ClientController extends Controller
      */
     public function store(Request $request)
     {
+        // Check if this is a quick create request (from quotation modal)
+        if ($request->expectsJson() || $request->ajax()) {
+            return $this->quickStore($request);
+        }
+
         $validated = $request->validate([
             'type' => 'required|in:individual,company',
             'company_name' => 'nullable|required_if:type,company|string|max:255',
@@ -135,6 +140,78 @@ class ClientController extends Controller
             DB::rollBack();
             Log::error('Error creating client: ' . $e->getMessage());
             return back()->withInput()->with('error', 'Failed to create client. Please try again.');
+        }
+    }
+
+    /**
+     * Quick store for creating client from quotation modal.
+     */
+    protected function quickStore(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'company_name' => 'nullable|string|max:255',
+            'email' => 'required|email|max:255|unique:clients,email',
+            'phone' => 'nullable|string|max:50',
+            'address' => 'nullable|string|max:500',
+            'city' => 'required|string|max:100',
+            'country' => 'required|string|max:100',
+            'contact_person' => 'nullable|string|max:255',
+            'status' => 'required|in:active,inactive',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $client = Client::create([
+                'type' => !empty($validated['company_name']) ? 'company' : 'individual',
+                'name' => $validated['name'],
+                'company_name' => $validated['company_name'],
+                'contact_person' => $validated['contact_person'] ?? $validated['name'],
+                'email' => $validated['email'],
+                'phone' => $validated['phone'],
+                'address_line_1' => $validated['address'],
+                'city' => $validated['city'],
+                'country' => $validated['country'],
+                'status' => $validated['status'],
+                'classification' => 'regular',
+            ]);
+
+            // Log activity
+            ActivityLog::log(
+                'created',
+                "Created new client (quick): {$client->display_name}",
+                $client,
+                auth()->user(),
+                ['client_id' => $client->id, 'email' => $client->email],
+                ['new' => $validated],
+                'clients'
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Client created successfully.',
+                'client' => [
+                    'id' => $client->id,
+                    'name' => $client->name,
+                    'company_name' => $client->company_name,
+                    'display_name' => $client->display_name,
+                    'email' => $client->email,
+                    'phone' => $client->phone,
+                    'address' => $client->address_line_1,
+                    'city' => $client->city,
+                    'country' => $client->country,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error creating client (quick): ' . $e->getMessage() . ' - ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create client: ' . $e->getMessage(),
+            ], 500);
         }
     }
 

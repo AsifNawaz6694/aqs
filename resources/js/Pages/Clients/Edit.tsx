@@ -1,5 +1,6 @@
 import { Head, Link, useForm } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import SearchableSelect from '@/Components/SearchableSelect';
 import { FormEventHandler } from 'react';
 
 interface Client {
@@ -26,27 +27,45 @@ interface Props {
     client: Client;
 }
 
-const COUNTRY_CODES = [
-    { code: '+1', country: 'US/Canada' },
-    { code: '+44', country: 'UK' },
-    { code: '+971', country: 'UAE' },
-    { code: '+966', country: 'Saudi Arabia' },
-    { code: '+974', country: 'Qatar' },
-    { code: '+973', country: 'Bahrain' },
-    { code: '+965', country: 'Kuwait' },
-    { code: '+968', country: 'Oman' },
-    { code: '+91', country: 'India' },
-    { code: '+92', country: 'Pakistan' },
-    { code: '+86', country: 'China' },
-    { code: '+81', country: 'Japan' },
-    { code: '+49', country: 'Germany' },
-    { code: '+33', country: 'France' },
-    { code: '+39', country: 'Italy' },
-    { code: '+34', country: 'Spain' },
-    { code: '+61', country: 'Australia' },
+// GCC Countries with flags and phone codes
+const GCC_COUNTRIES = [
+    { code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦', phoneCode: '+966' },
+    { code: 'AE', name: 'United Arab Emirates', flag: '🇦🇪', phoneCode: '+971' },
+    { code: 'QA', name: 'Qatar', flag: '🇶🇦', phoneCode: '+974' },
+    { code: 'KW', name: 'Kuwait', flag: '🇰🇼', phoneCode: '+965' },
+    { code: 'BH', name: 'Bahrain', flag: '🇧🇭', phoneCode: '+973' },
+    { code: 'OM', name: 'Oman', flag: '🇴🇲', phoneCode: '+968' },
 ];
 
+// GCC Cities by country
+const GCC_CITIES: Record<string, string[]> = {
+    'Saudi Arabia': [
+        'Riyadh', 'Jeddah', 'Mecca', 'Medina', 'Dammam', 'Khobar', 'Dhahran',
+        'Jubail', 'Yanbu', 'Tabuk', 'Abha', 'Khamis Mushait', 'Najran', 'Jazan',
+        'Hofuf', 'Buraidah', 'Taif', 'Hail', 'Arar', 'Sakaka',
+    ],
+    'United Arab Emirates': [
+        'Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah',
+        'Fujairah', 'Umm Al Quwain', 'Al Ain',
+    ],
+    'Qatar': [
+        'Doha', 'Al Wakrah', 'Al Khor', 'Al Rayyan', 'Umm Salal', 'Mesaieed',
+    ],
+    'Kuwait': [
+        'Kuwait City', 'Hawalli', 'Salmiya', 'Farwaniya', 'Jahra', 'Ahmadi', 'Mangaf',
+    ],
+    'Bahrain': [
+        'Manama', 'Riffa', 'Muharraq', 'Hamad Town', 'Isa Town', 'Sitra',
+    ],
+    'Oman': [
+        'Muscat', 'Salalah', 'Sohar', 'Nizwa', 'Sur', 'Ibri', 'Seeb', 'Barka',
+    ],
+};
+
 export default function Edit({ client }: Props) {
+    // Find matching GCC country or default to Saudi Arabia
+    const initialCountry = GCC_COUNTRIES.find(c => c.name === client.country) || GCC_COUNTRIES[0];
+
     const { data, setData, put, processing, errors } = useForm({
         type: client.type,
         company_name: client.company_name || '',
@@ -54,17 +73,30 @@ export default function Edit({ client }: Props) {
         contact_last_name: client.contact_last_name,
         email: client.email,
         phone: client.phone || '',
-        phone_country_code: client.phone_country_code || '+971',
+        phone_country_code: client.phone_country_code || initialCountry.phoneCode,
         address_line_1: client.address_line_1 || '',
         address_line_2: client.address_line_2 || '',
         city: client.city || '',
         state: client.state || '',
         postal_code: client.postal_code || '',
-        country: client.country || '',
+        country: client.country || initialCountry.name,
         tax_id: client.tax_id || '',
         notes: client.notes || '',
         status: client.status,
     });
+
+    // Handle country change - sync phone code and reset city
+    const handleCountryChange = (countryName: string) => {
+        const country = GCC_COUNTRIES.find(c => c.name === countryName);
+        if (country) {
+            setData(prev => ({
+                ...prev,
+                country: country.name,
+                phone_country_code: country.phoneCode,
+                city: '', // Reset city when country changes
+            }));
+        }
+    };
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -133,7 +165,7 @@ export default function Edit({ client }: Props) {
                                                 id="company_name"
                                                 value={data.company_name}
                                                 onChange={(e) => setData('company_name', e.target.value)}
-                                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                                className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                                 required={data.type === 'company'}
                                             />
                                             {errors.company_name && <p className="mt-1 text-sm text-red-600">{errors.company_name}</p>}
@@ -148,7 +180,7 @@ export default function Edit({ client }: Props) {
                                                 id="tax_id"
                                                 value={data.tax_id}
                                                 onChange={(e) => setData('tax_id', e.target.value)}
-                                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                                className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             />
                                             {errors.tax_id && <p className="mt-1 text-sm text-red-600">{errors.tax_id}</p>}
                                         </div>
@@ -171,7 +203,7 @@ export default function Edit({ client }: Props) {
                                             id="contact_first_name"
                                             value={data.contact_first_name}
                                             onChange={(e) => setData('contact_first_name', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             required
                                         />
                                         {errors.contact_first_name && <p className="mt-1 text-sm text-red-600">{errors.contact_first_name}</p>}
@@ -186,7 +218,7 @@ export default function Edit({ client }: Props) {
                                             id="contact_last_name"
                                             value={data.contact_last_name}
                                             onChange={(e) => setData('contact_last_name', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             required
                                         />
                                         {errors.contact_last_name && <p className="mt-1 text-sm text-red-600">{errors.contact_last_name}</p>}
@@ -201,7 +233,7 @@ export default function Edit({ client }: Props) {
                                             id="email"
                                             value={data.email}
                                             onChange={(e) => setData('email', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             required
                                         />
                                         {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
@@ -211,25 +243,22 @@ export default function Edit({ client }: Props) {
                                         <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
                                             Phone
                                         </label>
-                                        <div className="mt-1 flex">
-                                            <select
-                                                value={data.phone_country_code}
-                                                onChange={(e) => setData('phone_country_code', e.target.value)}
-                                                className="rounded-l-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                            >
-                                                {COUNTRY_CODES.map((cc) => (
-                                                    <option key={cc.code} value={cc.code}>
-                                                        {cc.code} ({cc.country})
-                                                    </option>
-                                                ))}
-                                            </select>
+                                        <div className="mt-1.5 flex">
+                                            <div className="flex items-center gap-1.5 px-3 py-3 bg-slate-50 border border-r-0 border-slate-300 rounded-l-xl shrink-0">
+                                                <span className="text-base">
+                                                    {GCC_COUNTRIES.find(c => c.name === data.country)?.flag || '🇸🇦'}
+                                                </span>
+                                                <span className="text-sm text-slate-700 font-medium">
+                                                    {data.phone_country_code}
+                                                </span>
+                                            </div>
                                             <input
                                                 type="tel"
                                                 id="phone"
                                                 value={data.phone}
                                                 onChange={(e) => setData('phone', e.target.value)}
-                                                className="block w-full rounded-r-md border-l-0 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                                placeholder="50 123 4567"
+                                                className="block w-full min-w-0 px-4 py-3 text-sm rounded-r-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
+                                                placeholder="5XXXXXXXX"
                                             />
                                         </div>
                                         {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone}</p>}
@@ -250,7 +279,7 @@ export default function Edit({ client }: Props) {
                                             id="address_line_1"
                                             value={data.address_line_1}
                                             onChange={(e) => setData('address_line_1', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                         />
                                         {errors.address_line_1 && <p className="mt-1 text-sm text-red-600">{errors.address_line_1}</p>}
                                     </div>
@@ -264,23 +293,45 @@ export default function Edit({ client }: Props) {
                                             id="address_line_2"
                                             value={data.address_line_2}
                                             onChange={(e) => setData('address_line_2', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                         />
                                         {errors.address_line_2 && <p className="mt-1 text-sm text-red-600">{errors.address_line_2}</p>}
                                     </div>
 
                                     <div>
-                                        <label htmlFor="city" className="block text-sm font-medium text-gray-700">
-                                            City
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                            Country <span className="text-red-500">*</span>
                                         </label>
-                                        <input
-                                            type="text"
-                                            id="city"
-                                            value={data.city}
-                                            onChange={(e) => setData('city', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        <SearchableSelect
+                                            options={GCC_COUNTRIES.map(country => ({
+                                                value: country.name,
+                                                label: `${country.flag} ${country.name}`,
+                                            }))}
+                                            value={data.country}
+                                            onChange={handleCountryChange}
+                                            placeholder="Select a country..."
+                                            searchPlaceholder="Search countries..."
+                                            error={errors.country}
+                                            required
                                         />
-                                        {errors.city && <p className="mt-1 text-sm text-red-600">{errors.city}</p>}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                            City <span className="text-red-500">*</span>
+                                        </label>
+                                        <SearchableSelect
+                                            options={(GCC_CITIES[data.country] || []).map(city => ({
+                                                value: city,
+                                                label: city,
+                                            }))}
+                                            value={data.city}
+                                            onChange={(value) => setData('city', value)}
+                                            placeholder="Select a city..."
+                                            searchPlaceholder="Search cities..."
+                                            error={errors.city}
+                                            required
+                                        />
                                     </div>
 
                                     <div>
@@ -292,7 +343,7 @@ export default function Edit({ client }: Props) {
                                             id="state"
                                             value={data.state}
                                             onChange={(e) => setData('state', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                         />
                                         {errors.state && <p className="mt-1 text-sm text-red-600">{errors.state}</p>}
                                     </div>
@@ -306,23 +357,9 @@ export default function Edit({ client }: Props) {
                                             id="postal_code"
                                             value={data.postal_code}
                                             onChange={(e) => setData('postal_code', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                         />
                                         {errors.postal_code && <p className="mt-1 text-sm text-red-600">{errors.postal_code}</p>}
-                                    </div>
-
-                                    <div>
-                                        <label htmlFor="country" className="block text-sm font-medium text-gray-700">
-                                            Country
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="country"
-                                            value={data.country}
-                                            onChange={(e) => setData('country', e.target.value)}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                        />
-                                        {errors.country && <p className="mt-1 text-sm text-red-600">{errors.country}</p>}
                                     </div>
                                 </div>
                             </div>
@@ -339,7 +376,7 @@ export default function Edit({ client }: Props) {
                                             id="status"
                                             value={data.status}
                                             onChange={(e) => setData('status', e.target.value as 'active' | 'inactive')}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             required
                                         >
                                             <option value="active">Active</option>
@@ -357,7 +394,7 @@ export default function Edit({ client }: Props) {
                                             value={data.notes}
                                             onChange={(e) => setData('notes', e.target.value)}
                                             rows={3}
-                                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             placeholder="Any additional notes about this client..."
                                         />
                                         {errors.notes && <p className="mt-1 text-sm text-red-600">{errors.notes}</p>}

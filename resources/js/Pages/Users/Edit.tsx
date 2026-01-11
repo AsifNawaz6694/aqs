@@ -116,7 +116,7 @@ export default function UsersEdit({ user, roles }: Props) {
                                             name="role_id"
                                             value={data.role_id}
                                             onChange={(e) => setData('role_id', e.target.value)}
-                                            className="mt-1 block w-full border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             required
                                         >
                                             <option value="">Select a role</option>
@@ -136,7 +136,7 @@ export default function UsersEdit({ user, roles }: Props) {
                                             name="status"
                                             value={data.status}
                                             onChange={(e) => setData('status', e.target.value)}
-                                            className="mt-1 block w-full border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                            className="mt-1.5 block w-full px-4 py-3 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 transition-all duration-200 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
                                             required
                                         >
                                             <option value="active">Active</option>

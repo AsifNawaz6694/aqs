@@ -76,9 +76,8 @@ export default function Index({ roles, filters }: Props) {
         >
             <Head title="Roles" />
 
-            <div className="py-12">
-                <div className="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                    {/* Flash Messages */}
+            <div className="space-y-6">
+                {/* Flash Messages */}
                     {flash?.success && (
                         <div className="mb-4 rounded-md bg-green-50 p-4">
                             <p className="text-sm font-medium text-green-800">{flash.success}</p>
@@ -271,7 +270,6 @@ export default function Index({ roles, filters }: Props) {
                         </div>
                     </div>
                 </div>
-            </div>
 
             {/* Delete Modal */}
             {deleteModal && (
