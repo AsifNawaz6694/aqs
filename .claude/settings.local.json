@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(composer require:*)",
+      "Bash(npm install)",
+      "Bash(php artisan:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(php -l:*)",
+      "Bash(for f in app/Http/Controllers/*.php)",
+      "Bash(do php -l \"$f\")",
+      "Bash(done)"
+    ]
+  }
+}
