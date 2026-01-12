@@ -10,9 +10,16 @@ class QuotationItem extends Model
 {
     use HasFactory;
 
+    // Source constants for product origin tracking
+    public const SOURCE_EKUEP = 'ekuep';
+    public const SOURCE_LOCAL = 'local';
+    public const SOURCE_CUSTOM = 'custom';
+
     protected $fillable = [
         'quotation_id',
         'product_id',
+        'external_id',
+        'source',
         'item_code',
         'name',
         'original_name',
@@ -157,7 +164,7 @@ class QuotationItem extends Model
         });
     }
 
-    // Create from product
+    // Create from local product
     public static function createFromProduct(Product $product, Quotation $quotation, float $quantity = 1, array $additionalData = []): self
     {
         // Build product specifications from product data
@@ -166,6 +173,8 @@ class QuotationItem extends Model
         return self::create([
             'quotation_id' => $quotation->id,
             'product_id' => $product->id,
+            'external_id' => null, // Local product, no external ID
+            'source' => self::SOURCE_LOCAL,
             'item_code' => $product->sku,
             'name' => $product->name,
             'original_name' => $additionalData['original_name'] ?? null,
@@ -247,6 +256,8 @@ class QuotationItem extends Model
         return self::create([
             'quotation_id' => $quotation->id,
             'product_id' => null, // External product, no local ID
+            'external_id' => $productData['external_id'] ?? $productData['id'] ?? null, // EKUEP product ID
+            'source' => self::SOURCE_EKUEP,
             'item_code' => $productData['sku'] ?? $productData['external_reference'] ?? null,
             'name' => $productData['name'] ?? '',
             'original_name' => $additionalData['original_name'] ?? null,
@@ -273,6 +284,8 @@ class QuotationItem extends Model
         return self::create([
             'quotation_id' => $quotation->id,
             'product_id' => null,
+            'external_id' => null,
+            'source' => self::SOURCE_CUSTOM,
             'item_code' => $data['item_code'] ?? null,
             'name' => $data['name'],
             'original_name' => $data['original_name'] ?? null,

@@ -10,7 +10,12 @@
       "Bash(for f in app/Http/Controllers/*.php)",
       "Bash(do php -l \"$f\")",
       "Bash(done)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(composer show:*)",
+      "Bash(chmod:*)",
+      "Bash(curl:*)",
+      "Bash(file:*)",
+      "Bash(php -r:*)"
     ]
   }
 }

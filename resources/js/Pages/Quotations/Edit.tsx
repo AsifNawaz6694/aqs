@@ -32,6 +32,7 @@ interface Product {
     name: string;
     price: number;
     image_url: string | null;
+    slug: string | null;
     category: string | null;
     brand: string | null;
     voltage: string | null;
@@ -42,11 +43,14 @@ interface Product {
     weight_unit: string | null;
     amperage: number | null;
     specifications: ProductSpecifications | null;
+    source?: string;
 }
 
 interface QuotationItemData {
     id?: number;
     product_id: number | null;
+    external_id: string | null;
+    source: 'ekuep' | 'local' | 'custom';
     sku: string;
     external_reference: string;
     name: string;
@@ -62,6 +66,7 @@ interface QuotationItemData {
     is_custom: boolean;
     is_free: boolean;
     image_url: string | null;
+    slug: string | null;
     product_specifications: ProductSpecifications | null;
 }
 
@@ -146,11 +151,14 @@ export default function Edit({
     const [items, setItems] = useState<QuotationItemData[]>(
         quotation.items.map(item => ({
             ...item,
+            external_id: (item as any).external_id || null,
+            source: (item as any).source || (item.product_id ? 'local' : 'custom'),
             external_reference: item.external_reference || '',
             original_name: item.original_name || '',
             requested_quantity: item.requested_quantity || item.quantity,
             is_free: item.is_free || false,
             image_url: item.image_url || null,
+            slug: item.slug || null,
             product_specifications: item.product_specifications || null,
         }))
     );
@@ -382,8 +390,12 @@ export default function Edit({
 
     // Add product from search directly to items
     const addProductFromSearch = (product: Product) => {
+        // Determine if this is an EKUEP product or local product
+        const isEkuepProduct = product.source === 'ekuep' || !!product.external_reference;
         const newItem: QuotationItemData = {
-            product_id: product.id,
+            product_id: isEkuepProduct ? null : product.id,
+            external_id: isEkuepProduct ? String(product.id) : null,
+            source: isEkuepProduct ? 'ekuep' : 'local',
             sku: product.sku,
             external_reference: product.external_reference || '',
             name: product.name,
@@ -399,6 +411,7 @@ export default function Edit({
             is_custom: false,
             is_free: false,
             image_url: product.image_url,
+            slug: product.slug || null,
             product_specifications: {
                 voltage: product.voltage || undefined,
                 power: product.power || undefined,
@@ -419,6 +432,8 @@ export default function Edit({
     const addCustomItem = () => {
         const newItem: QuotationItemData = {
             product_id: null,
+            external_id: null,
+            source: 'custom',
             sku: '',
             external_reference: '',
             name: '',
@@ -434,6 +449,7 @@ export default function Edit({
             is_custom: true,
             is_free: false,
             image_url: null,
+            slug: null,
             product_specifications: null,
         };
         setItems([...items, newItem]);
@@ -580,12 +596,14 @@ export default function Edit({
         const transformedItems = items.map(item => ({
             id: item.id || null,
             product_id: item.product_id && item.product_id > 0 ? item.product_id : null,
+            external_id: item.external_id || null,
+            source: item.source || 'custom',
             item_code: item.sku || item.external_reference || '',
             name: item.name,
             original_name: item.original_name || null,
             description: item.description || null,
             image_url: item.image_url || null,
-            slug: null,
+            slug: item.slug || null,
             product_specifications: item.product_specifications || null,
             unit: item.unit,
             unit_price: item.unit_price,

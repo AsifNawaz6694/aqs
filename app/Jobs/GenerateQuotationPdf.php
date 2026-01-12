@@ -6,7 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\Quotation;
 use App\Models\SystemSetting;
 use App\Models\User;
-use Barryvdh\DomPDF\Facade\Pdf;
+use Barryvdh\DomPDF\PDF;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -32,34 +32,35 @@ class GenerateQuotationPdf implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(PDF $pdf): void
     {
         $this->quotation->load([
             'client',
             'user:id,name,email',
-            'items.product:id,sku,name',
+            'items',
         ]);
 
         // Get company settings
         $companySettings = [
-            'name' => SystemSetting::getValue('company_name', 'Ekuep Trading Company'),
-            'address' => SystemSetting::getValue('company_address', ''),
-            'phone' => SystemSetting::getValue('company_phone', ''),
-            'email' => SystemSetting::getValue('company_email', ''),
-            'vat_number' => SystemSetting::getValue('company_vat_number', ''),
+            'name' => SystemSetting::getValue('company_name', 'Ekuep.com'),
+            'address' => SystemSetting::getValue('company_address', 'Wosol For Communication & Information Technology'),
+            'phone' => SystemSetting::getValue('company_phone', '920035110'),
+            'email' => SystemSetting::getValue('company_email', 'ekuep@ekuep.com'),
+            'vat_number' => SystemSetting::getValue('company_vat_number', '300774863200003'),
+            'logo_url' => SystemSetting::getValue('company_logo_url', ''),
         ];
 
         // Generate PDF
-        $pdf = Pdf::loadView('pdf.quotation', [
+        $pdfInstance = $pdf->loadView('pdf.quotation', [
             'quotation' => $this->quotation,
             'company' => $companySettings,
         ]);
 
-        $pdf->setPaper('A4', 'portrait');
+        $pdfInstance->setPaper('A4', 'portrait');
 
         // Store PDF
         $filename = "quotations/{$this->quotation->quotation_number}.pdf";
-        Storage::put($filename, $pdf->output());
+        Storage::put($filename, $pdfInstance->output());
 
         // Update quotation
         $this->quotation->pdf_path = $filename;

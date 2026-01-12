@@ -32,6 +32,7 @@ interface Product {
     name: string;
     price: number;
     image_url: string | null;
+    slug: string | null;
     category: string | null;
     brand: string | null;
     voltage: string | null;
@@ -42,11 +43,14 @@ interface Product {
     weight_unit: string | null;
     amperage: number | null;
     specifications: ProductSpecifications | null;
+    source?: string;
 }
 
 interface QuotationItem {
     id?: number;
     product_id: number | null;
+    external_id: string | null;
+    source: 'ekuep' | 'local' | 'custom';
     sku: string;
     external_reference: string;
     name: string;
@@ -62,6 +66,7 @@ interface QuotationItem {
     is_custom: boolean;
     is_free: boolean;
     image_url: string | null;
+    slug: string | null;
     product_specifications: ProductSpecifications | null;
 }
 
@@ -328,8 +333,12 @@ export default function Create({
 
     // Add product from search
     const addProductFromSearch = (product: Product) => {
+        // Determine if this is an EKUEP product or local product
+        const isEkuepProduct = product.source === 'ekuep' || !!product.external_reference;
         const newItem: QuotationItem = {
-            product_id: product.id,
+            product_id: isEkuepProduct ? null : product.id,
+            external_id: isEkuepProduct ? String(product.id) : null,
+            source: isEkuepProduct ? 'ekuep' : 'local',
             sku: product.sku,
             external_reference: product.external_reference || '',
             name: product.name,
@@ -345,6 +354,7 @@ export default function Create({
             is_custom: false,
             is_free: false,
             image_url: product.image_url,
+            slug: product.slug || null,
             product_specifications: {
                 voltage: product.voltage || undefined,
                 power: product.power || undefined,
@@ -364,6 +374,8 @@ export default function Create({
     const addCustomItem = () => {
         const newItem: QuotationItem = {
             product_id: null,
+            external_id: null,
+            source: 'custom',
             sku: '',
             external_reference: '',
             name: '',
@@ -379,6 +391,7 @@ export default function Create({
             is_custom: true,
             is_free: false,
             image_url: null,
+            slug: null,
             product_specifications: null,
         };
         setItems([...items, newItem]);
@@ -477,6 +490,23 @@ export default function Create({
 
             setClients([...clients, createdClient]);
             setData('client_id', createdClient.id.toString());
+            // Auto-populate phone number from newly created client
+            if (createdClient.phone) {
+                const phoneParts = createdClient.phone.match(/^(\+\d{2,4})\s*(.*)$/);
+                if (phoneParts) {
+                    const phoneCode = phoneParts[1];
+                    const phoneNumber = phoneParts[2].replace(/\D/g, '');
+                    const country = GCC_COUNTRIES.find(c => c.phoneCode === phoneCode);
+                    if (country) {
+                        setData('phone_code', phoneCode);
+                        setData('phone_number', phoneNumber);
+                    } else {
+                        setData('phone_number', phoneParts[2].replace(/\D/g, ''));
+                    }
+                } else {
+                    setData('phone_number', createdClient.phone.replace(/\D/g, ''));
+                }
+            }
             setShowNewClientModal(false);
             setNewClient({
                 name: '',
@@ -529,12 +559,14 @@ export default function Create({
         // Transform items to backend format
         const transformedItems = items.map(item => ({
             product_id: item.product_id && item.product_id > 0 ? item.product_id : null,
+            external_id: item.external_id || null,
+            source: item.source || 'custom',
             item_code: item.sku || item.external_reference || '',
             name: item.name,
             original_name: item.original_name || null,
             description: item.description || null,
             image_url: item.image_url || null,
-            slug: null,
+            slug: item.slug || null,
             product_specifications: item.product_specifications || null,
             unit: item.unit,
             unit_price: item.unit_price,
@@ -635,7 +667,34 @@ export default function Create({
                                                 subLabel: client.email,
                                             }))}
                                             value={data.client_id}
-                                            onChange={(value) => setData('client_id', value)}
+                                            onChange={(value) => {
+                                                setData('client_id', value);
+                                                // Auto-populate phone number from selected client
+                                                const selectedClient = clients.find(c => c.id.toString() === value);
+                                                if (selectedClient?.phone) {
+                                                    // Parse phone format: "+966 512345678" or "+966512345678"
+                                                    const phoneParts = selectedClient.phone.match(/^(\+\d{2,4})\s*(.*)$/);
+                                                    if (phoneParts) {
+                                                        const phoneCode = phoneParts[1];
+                                                        const phoneNumber = phoneParts[2].replace(/\D/g, '');
+                                                        // Find matching GCC country code
+                                                        const country = GCC_COUNTRIES.find(c => c.phoneCode === phoneCode);
+                                                        if (country) {
+                                                            setData('phone_code', phoneCode);
+                                                            setData('phone_number', phoneNumber);
+                                                        } else {
+                                                            // If not a GCC code, just set the number
+                                                            setData('phone_number', phoneParts[2].replace(/\D/g, ''));
+                                                        }
+                                                    } else {
+                                                        // Try to extract just the number
+                                                        setData('phone_number', selectedClient.phone.replace(/\D/g, ''));
+                                                    }
+                                                } else {
+                                                    // Clear phone if client has no phone
+                                                    setData('phone_number', '');
+                                                }
+                                            }}
                                             placeholder="Search and select a client..."
                                             searchPlaceholder="Search by name or email..."
                                             error={errors.client_id}

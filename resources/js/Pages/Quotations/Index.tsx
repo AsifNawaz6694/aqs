@@ -1,6 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useState } from 'react';
+import axios from 'axios';
 
 // Helper to get today's date in YYYY-MM-DD format
 const getTodayDate = () => new Date().toISOString().split('T')[0];
@@ -84,6 +85,10 @@ export default function Index({ quotations, clients = [], users = [], statuses =
     const { auth, flash } = usePage().props as any;
     const [showFilters, setShowFilters] = useState(false);
     const [deleteModal, setDeleteModal] = useState<Quotation | null>(null);
+    const [statusModal, setStatusModal] = useState<Quotation | null>(null);
+    const [newStatus, setNewStatus] = useState('');
+    const [statusNotes, setStatusNotes] = useState('');
+    const [isChangingStatus, setIsChangingStatus] = useState(false);
     const [filterValues, setFilterValues] = useState({
         search: filters.search || '',
         status: filters.status || '',
@@ -135,6 +140,47 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                 onSuccess: () => setDeleteModal(null),
             });
         }
+    };
+
+    const openStatusModal = (quotation: Quotation) => {
+        setStatusModal(quotation);
+        setNewStatus('');
+        setStatusNotes('');
+    };
+
+    const handleStatusChange = async () => {
+        if (!statusModal || !newStatus) return;
+
+        setIsChangingStatus(true);
+        try {
+            await axios.post(route('quotations.change-status', statusModal.id), {
+                status: newStatus,
+                notes: statusNotes,
+            });
+            setStatusModal(null);
+            setNewStatus('');
+            setStatusNotes('');
+            router.reload({ only: ['quotations'] });
+        } catch (error: any) {
+            alert(error.response?.data?.message || 'Failed to change status');
+        } finally {
+            setIsChangingStatus(false);
+        }
+    };
+
+    const getAvailableStatuses = (currentStatus: string) => {
+        // Define which statuses can transition to which
+        const transitions: Record<string, string[]> = {
+            draft: ['pending_review', 'cancelled'],
+            pending_review: ['approved', 'draft', 'cancelled'],
+            approved: ['sent', 'draft', 'cancelled'],
+            sent: ['accepted', 'rejected', 'expired', 'cancelled'],
+            accepted: [],
+            rejected: [],
+            expired: [],
+            cancelled: ['draft'],
+        };
+        return transitions[currentStatus] || [];
     };
 
     const clearFilters = () => {
@@ -263,34 +309,39 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                             <form onSubmit={handleFilter} className="mb-6 rounded-xl bg-slate-50 border border-slate-200 p-5">
                                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Search</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">Search</label>
                                         <input
                                             type="text"
                                             value={filterValues.search}
                                             onChange={(e) => setFilterValues({ ...filterValues, search: e.target.value })}
                                             placeholder="Quotation number..."
-                                            className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Status</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
                                         <select
                                             value={filterValues.status}
                                             onChange={(e) => setFilterValues({ ...filterValues, status: e.target.value })}
-                                            className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
                                         >
                                             <option value="">All Statuses</option>
-                                            {Object.entries(statuses).map(([status, label]) => (
-                                                <option key={status} value={status}>{label}</option>
-                                            ))}
+                                            <option value="draft">Draft</option>
+                                            <option value="pending_review">Pending Review</option>
+                                            <option value="approved">Approved</option>
+                                            <option value="sent">Sent</option>
+                                            <option value="accepted">Accepted (Won)</option>
+                                            <option value="rejected">Rejected (Lost)</option>
+                                            <option value="expired">Expired</option>
+                                            <option value="cancelled">Cancelled</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Client</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">Client</label>
                                         <select
                                             value={filterValues.client_id}
                                             onChange={(e) => setFilterValues({ ...filterValues, client_id: e.target.value })}
-                                            className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
                                         >
                                             <option value="">All Clients</option>
                                             {clients.map((client) => (
@@ -299,11 +350,11 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Sales Rep</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">Sales Rep</label>
                                         <select
                                             value={filterValues.user_id}
                                             onChange={(e) => setFilterValues({ ...filterValues, user_id: e.target.value })}
-                                            className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
                                         >
                                             <option value="">All Users</option>
                                             {users.map((user) => (
@@ -312,23 +363,23 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Date From</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">Date From</label>
                                         <input
                                             type="date"
                                             value={filterValues.date_from || getTodayDate()}
                                             onChange={(e) => handleDateChange('date_from', e.target.value)}
-                                            className={`block w-full rounded-xl shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm ${
+                                            className={`block w-full h-11 px-4 rounded-xl shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm ${
                                                 datesModified.date_from ? 'border-violet-400 bg-violet-50' : 'border-slate-300'
                                             }`}
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Date To</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">Date To</label>
                                         <input
                                             type="date"
                                             value={filterValues.date_to || getTodayDate()}
                                             onChange={(e) => handleDateChange('date_to', e.target.value)}
-                                            className={`block w-full rounded-xl shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm ${
+                                            className={`block w-full h-11 px-4 rounded-xl shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm ${
                                                 datesModified.date_to ? 'border-violet-400 bg-violet-50' : 'border-slate-300'
                                             }`}
                                         />
@@ -426,9 +477,18 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                                 </span>
                                             </td>
                                             <td className="whitespace-nowrap px-4 py-4 text-center">
-                                                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusColors[quotation.status] || 'bg-slate-100 text-slate-600'}`}>
+                                                <button
+                                                    onClick={() => openStatusModal(quotation)}
+                                                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity ${statusColors[quotation.status] || 'bg-slate-100 text-slate-600'}`}
+                                                    title="Click to change status"
+                                                >
                                                     {statusLabels[quotation.status] || quotation.status}
-                                                </span>
+                                                    {getAvailableStatuses(quotation.status).length > 0 && (
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    )}
+                                                </button>
                                             </td>
                                             <td className="whitespace-nowrap px-4 py-4 text-right">
                                                 <div className="flex justify-end gap-1">
@@ -442,6 +502,15 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                         </svg>
                                                     </Link>
+                                                    <a
+                                                        href={route('quotations.download-pdf', quotation.id)}
+                                                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                                        title="Download PDF"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        </svg>
+                                                    </a>
                                                     {hasPermission('quotations.edit') && quotation.status === 'draft' && (
                                                         <Link
                                                             href={route('quotations.edit', quotation.id)}
@@ -547,6 +616,96 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                             >
                                 Delete Quotation
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Status Change Modal */}
+            {statusModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                        <div className="flex items-center gap-4 mb-4">
+                            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-violet-100 flex items-center justify-center">
+                                <svg className="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-semibold text-slate-900">Change Status</h3>
+                                <p className="text-sm text-slate-500">{statusModal.quotation_number}</p>
+                            </div>
+                        </div>
+
+                        <div className="mb-4">
+                            <div className="text-sm text-slate-600 mb-3">
+                                Current Status: <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[statusModal.status]}`}>
+                                    {statusLabels[statusModal.status]}
+                                </span>
+                            </div>
+
+                            {getAvailableStatuses(statusModal.status).length > 0 ? (
+                                <>
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">New Status</label>
+                                    <div className="grid grid-cols-2 gap-2 mb-4">
+                                        {getAvailableStatuses(statusModal.status).map((status) => (
+                                            <button
+                                                key={status}
+                                                type="button"
+                                                onClick={() => setNewStatus(status)}
+                                                className={`rounded-xl px-3 py-2 text-sm font-medium transition-all ${
+                                                    newStatus === status
+                                                        ? 'ring-2 ring-violet-500 ring-offset-2'
+                                                        : ''
+                                                } ${statusColors[status]}`}
+                                            >
+                                                {statusLabels[status]}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">Notes (Optional)</label>
+                                    <textarea
+                                        value={statusNotes}
+                                        onChange={(e) => setStatusNotes(e.target.value)}
+                                        rows={3}
+                                        className="block w-full rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
+                                        placeholder="Add any notes about this status change..."
+                                    />
+                                </>
+                            ) : (
+                                <div className="text-center py-4 text-slate-500">
+                                    <svg className="w-12 h-12 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                    <p className="text-sm">This quotation is in a final status and cannot be changed.</p>
+                                    {(statusModal.status === 'rejected' || statusModal.status === 'expired') && (
+                                        <p className="text-xs mt-2">You can create a new version from the quotation view page.</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setStatusModal(null);
+                                    setNewStatus('');
+                                    setStatusNotes('');
+                                }}
+                                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            {getAvailableStatuses(statusModal.status).length > 0 && (
+                                <button
+                                    onClick={handleStatusChange}
+                                    disabled={!newStatus || isChangingStatus}
+                                    className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isChangingStatus ? 'Changing...' : 'Change Status'}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

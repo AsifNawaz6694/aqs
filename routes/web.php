@@ -106,6 +106,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/quotations/{quotation}/create-version', [QuotationController::class, 'createVersion'])->name('quotations.create-version')->middleware('permission:quotations.create');
     Route::post('/quotations/{quotation}/generate-pdf', [QuotationController::class, 'generatePdf'])->name('quotations.generate-pdf')->middleware('permission:quotations.view');
     Route::get('/quotations/{quotation}/download-pdf', [QuotationController::class, 'downloadPdf'])->name('quotations.download-pdf')->middleware('permission:quotations.view');
+    Route::post('/quotations/{quotation}/change-status', [QuotationController::class, 'changeStatusApi'])->name('quotations.change-status')->middleware('permission:quotations.edit');
 
     // Settings routes
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index')->middleware('permission:settings.view');

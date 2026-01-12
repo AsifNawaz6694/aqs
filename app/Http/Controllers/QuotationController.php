@@ -15,6 +15,7 @@ use App\Services\EkuepApiService;
 use App\Services\FileParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -156,7 +157,9 @@ class QuotationController extends Controller
             'warranty_terms' => 'nullable|string',
             'internal_notes' => 'nullable|string',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'nullable|integer', // Allow external products without local ID
+            'items.*.product_id' => 'nullable|integer', // Local product ID (null for EKUEP/custom)
+            'items.*.external_id' => 'nullable|string|max:100', // EKUEP product ID
+            'items.*.source' => 'nullable|string|in:ekuep,local,custom',
             'items.*.item_code' => 'nullable|string|max:100',
             'items.*.name' => 'required|string|max:255',
             'items.*.original_name' => 'nullable|string|max:255',
@@ -220,9 +223,23 @@ class QuotationController extends Controller
                     ? $itemData['product_id']
                     : null;
 
+                // Determine source: ekuep (external), local (product_id set), or custom
+                $source = $itemData['source'] ?? QuotationItem::SOURCE_CUSTOM;
+                if (!$source || $source === 'custom') {
+                    if ($productId) {
+                        $source = QuotationItem::SOURCE_LOCAL;
+                    } elseif (!empty($itemData['external_id'])) {
+                        $source = QuotationItem::SOURCE_EKUEP;
+                    } else {
+                        $source = QuotationItem::SOURCE_CUSTOM;
+                    }
+                }
+
                 QuotationItem::create([
                     'quotation_id' => $quotation->id,
                     'product_id' => $productId,
+                    'external_id' => $itemData['external_id'] ?? null,
+                    'source' => $source,
                     'item_code' => $itemData['item_code'] ?? null,
                     'name' => $itemData['name'],
                     'original_name' => $itemData['original_name'] ?? null,
@@ -237,7 +254,7 @@ class QuotationController extends Controller
                     'discount_percentage' => $itemData['discount_percentage'] ?? 0,
                     'vat_rate' => $itemData['vat_rate'],
                     'vat_inclusive' => $validated['vat_inclusive'] ?? false,
-                    'is_custom_item' => $itemData['is_custom_item'] ?? !isset($itemData['product_id']),
+                    'is_custom_item' => $itemData['is_custom_item'] ?? ($source === QuotationItem::SOURCE_CUSTOM),
                     'is_transport_item' => $itemData['is_transport_item'] ?? false,
                     'is_free' => $itemData['is_free'] ?? false,
                     'sort_order' => $index,
@@ -405,7 +422,9 @@ class QuotationController extends Controller
             'internal_notes' => 'nullable|string',
             'items' => 'required|array|min:1',
             'items.*.id' => 'nullable|exists:quotation_items,id',
-            'items.*.product_id' => 'nullable|integer', // Allow external products without local ID
+            'items.*.product_id' => 'nullable|integer', // Local product ID (null for EKUEP/custom)
+            'items.*.external_id' => 'nullable|string|max:100', // EKUEP product ID
+            'items.*.source' => 'nullable|string|in:ekuep,local,custom',
             'items.*.item_code' => 'nullable|string|max:100',
             'items.*.name' => 'required|string|max:255',
             'items.*.original_name' => 'nullable|string|max:255',
@@ -470,9 +489,23 @@ class QuotationController extends Controller
                     ? $itemData['product_id']
                     : null;
 
+                // Determine source: ekuep (external), local (product_id set), or custom
+                $source = $itemData['source'] ?? QuotationItem::SOURCE_CUSTOM;
+                if (!$source || $source === 'custom') {
+                    if ($productId) {
+                        $source = QuotationItem::SOURCE_LOCAL;
+                    } elseif (!empty($itemData['external_id'])) {
+                        $source = QuotationItem::SOURCE_EKUEP;
+                    } else {
+                        $source = QuotationItem::SOURCE_CUSTOM;
+                    }
+                }
+
                 $itemPayload = [
                     'quotation_id' => $quotation->id,
                     'product_id' => $productId,
+                    'external_id' => $itemData['external_id'] ?? null,
+                    'source' => $source,
                     'item_code' => $itemData['item_code'] ?? null,
                     'name' => $itemData['name'],
                     'original_name' => $itemData['original_name'] ?? null,
@@ -487,7 +520,7 @@ class QuotationController extends Controller
                     'discount_percentage' => $itemData['discount_percentage'] ?? 0,
                     'vat_rate' => $itemData['vat_rate'],
                     'vat_inclusive' => $validated['vat_inclusive'] ?? false,
-                    'is_custom_item' => $itemData['is_custom_item'] ?? !isset($itemData['product_id']),
+                    'is_custom_item' => $itemData['is_custom_item'] ?? ($source === QuotationItem::SOURCE_CUSTOM),
                     'is_transport_item' => $itemData['is_transport_item'] ?? false,
                     'is_free' => $itemData['is_free'] ?? false,
                     'sort_order' => $index,
@@ -732,6 +765,74 @@ class QuotationController extends Controller
     }
 
     /**
+     * Change quotation status via API (AJAX).
+     */
+    public function changeStatusApi(Request $request, Quotation $quotation)
+    {
+        $request->validate([
+            'status' => 'required|string|in:draft,pending_review,approved,sent,accepted,rejected,expired,cancelled',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        $newStatus = $request->status;
+        $currentStatus = $quotation->status;
+        $notes = $request->notes;
+
+        // Define valid transitions
+        $validTransitions = [
+            'draft' => ['pending_review', 'cancelled'],
+            'pending_review' => ['approved', 'draft', 'cancelled'],
+            'approved' => ['sent', 'draft', 'cancelled'],
+            'sent' => ['accepted', 'rejected', 'expired', 'cancelled'],
+            'cancelled' => ['draft'],
+        ];
+
+        if (!isset($validTransitions[$currentStatus]) || !in_array($newStatus, $validTransitions[$currentStatus])) {
+            return response()->json([
+                'message' => "Cannot change status from {$currentStatus} to {$newStatus}.",
+            ], 422);
+        }
+
+        try {
+            // Apply the status change
+            $quotation->changeStatus($newStatus, auth()->id(), $notes);
+
+            // Handle specific status transitions
+            if ($newStatus === Quotation::STATUS_APPROVED) {
+                $quotation->approved_at = now();
+                $quotation->approved_by = auth()->id();
+            } elseif ($newStatus === Quotation::STATUS_SENT) {
+                $quotation->sent_at = now();
+            } elseif ($newStatus === Quotation::STATUS_ACCEPTED) {
+                $quotation->accepted_at = now();
+            } elseif ($newStatus === Quotation::STATUS_REJECTED) {
+                $quotation->rejected_at = now();
+                $quotation->rejection_reason = $notes;
+            }
+            $quotation->save();
+
+            ActivityLog::log(
+                'status_changed',
+                "Quotation {$quotation->quotation_number} status changed from {$currentStatus} to {$newStatus}",
+                $quotation,
+                auth()->user(),
+                ['from' => $currentStatus, 'to' => $newStatus, 'notes' => $notes],
+                [],
+                'quotations'
+            );
+
+            return response()->json([
+                'message' => 'Status updated successfully.',
+                'quotation' => $quotation->fresh(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to update status: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Create new version of quotation.
      */
     public function createVersion(Quotation $quotation)
@@ -776,18 +877,67 @@ class QuotationController extends Controller
     }
 
     /**
-     * Download PDF for quotation.
+     * Download PDF for quotation (generates on-the-fly using mPDF).
      */
     public function downloadPdf(Quotation $quotation)
     {
-        if (!$quotation->pdf_path || !file_exists(storage_path('app/' . $quotation->pdf_path))) {
-            return back()->withErrors(['error' => 'PDF not found. Please generate it first.']);
-        }
+        $quotation->load([
+            'client',
+            'user:id,name,email',
+            'items',
+        ]);
 
-        return response()->download(
-            storage_path('app/' . $quotation->pdf_path),
-            "Quotation-{$quotation->quotation_number}.pdf"
-        );
+        // Get company settings
+        $companySettings = [
+            'name' => SystemSetting::getValue('company_name', 'Ekuep.com'),
+            'address' => SystemSetting::getValue('company_address', 'Wosol For Communication & Information Technology'),
+            'phone' => SystemSetting::getValue('company_phone', '920035110'),
+            'email' => SystemSetting::getValue('company_email', 'ekuep@ekuep.com'),
+            'vat_number' => SystemSetting::getValue('company_vat_number', '300774863200003'),
+            'logo_url' => SystemSetting::getValue('company_logo_url', ''),
+        ];
+
+        try {
+            // Render the blade view to HTML
+            $html = view('pdf.quotation', [
+                'quotation' => $quotation,
+                'company' => $companySettings,
+            ])->render();
+
+            // Create mPDF instance with Arabic support
+            $mpdf = new \Mpdf\Mpdf([
+                'mode' => 'utf-8',
+                'format' => 'A4',
+                'margin_left' => 10,
+                'margin_right' => 10,
+                'margin_top' => 10,
+                'margin_bottom' => 10,
+                'default_font' => 'dejavusans',
+                'tempDir' => storage_path('app/mpdf'),
+            ]);
+
+            // Enable auto language detection for Arabic
+            $mpdf->autoScriptToLang = true;
+            $mpdf->autoLangToFont = true;
+
+            // Write HTML to PDF
+            $mpdf->WriteHTML($html);
+
+            // Update quotation pdf info
+            $filename = "quotations/{$quotation->quotation_number}.pdf";
+            Storage::put($filename, $mpdf->Output('', 'S'));
+            $quotation->pdf_path = $filename;
+            $quotation->pdf_generated_at = now();
+            $quotation->save();
+
+            // Return PDF download
+            return response($mpdf->Output('', 'S'), 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="Quotation-' . $quotation->quotation_number . '.pdf"',
+            ]);
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
+        }
     }
 
     /**
