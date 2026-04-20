@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\PasswordResetMail;
 
 class User extends Authenticatable
 {
@@ -175,6 +177,19 @@ class User extends Authenticatable
         return $this->password_setup_token &&
                $this->password_setup_token_expires_at &&
                $this->password_setup_token_expires_at->isFuture();
+    }
+
+    /**
+     * Send the password reset notification using a custom mailable.
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $resetUrl = url(route('password.reset', [
+            'token' => $token,
+            'email' => $this->email,
+        ], false));
+
+        Mail::to($this->email)->send(new PasswordResetMail($this, $resetUrl));
     }
 
     /**

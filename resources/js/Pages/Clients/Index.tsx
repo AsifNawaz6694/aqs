@@ -1,6 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Input, Select, Button, Badge, Card, EmptyState } from '@/Components/Form';
+import { Input, Button, Badge, Card, EmptyState } from '@/Components/Form';
+import MultiSelect from '@/Components/MultiSelect';
 import { useState } from 'react';
 
 interface Client {
@@ -49,10 +50,10 @@ export default function Index({ clients, cities, countries, filters }: Props) {
     const [deleteModal, setDeleteModal] = useState<Client | null>(null);
     const [filterValues, setFilterValues] = useState({
         search: filters.search || '',
-        type: filters.type || '',
-        status: filters.status || '',
-        city: filters.city || '',
-        country: filters.country || '',
+        type: filters.type ? filters.type.split(',') : [] as string[],
+        status: filters.status ? filters.status.split(',') : [] as string[],
+        city: filters.city ? filters.city.split(',') : [] as string[],
+        country: filters.country ? filters.country.split(',') : [] as string[],
     });
 
     const hasPermission = (permission: string) => {
@@ -63,7 +64,11 @@ export default function Index({ clients, cities, countries, filters }: Props) {
         e.preventDefault();
         const params: Record<string, string> = {};
         Object.entries(filterValues).forEach(([key, value]) => {
-            if (value) params[key] = value;
+            if (Array.isArray(value) && value.length > 0) {
+                params[key] = value.join(',');
+            } else if (typeof value === 'string' && value) {
+                params[key] = value;
+            }
         });
         router.get(route('clients.index'), params, { preserveState: true });
     };
@@ -84,10 +89,10 @@ export default function Index({ clients, cities, countries, filters }: Props) {
     const clearFilters = () => {
         setFilterValues({
             search: '',
-            type: '',
-            status: '',
-            city: '',
-            country: '',
+            type: [],
+            status: [],
+            city: [],
+            country: [],
         });
         router.get(route('clients.index'));
     };
@@ -183,15 +188,15 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                             )}
                             {hasPermission('clients.create') && (
                                 <Link href={route('clients.create')}>
-                                    <Button
-                                        icon={
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                            </svg>
-                                        }
+                                    <button
+                                        type="button"
+                                        className="rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-700 hover:to-purple-700 shadow-lg shadow-violet-500/30 transition-all inline-flex items-center gap-2"
                                     >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        </svg>
                                         Add Client
-                                    </Button>
+                                    </button>
                                 </Link>
                             )}
                         </div>
@@ -208,44 +213,43 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                     onChange={(e) => setFilterValues({ ...filterValues, search: e.target.value })}
                                     placeholder="Name, email, phone..."
                                 />
-                                <Select
+                                <MultiSelect
                                     label="Type"
+                                    options={[
+                                        { value: 'individual', label: 'Individual' },
+                                        { value: 'company', label: 'Company' },
+                                    ]}
                                     value={filterValues.type}
-                                    onChange={(e) => setFilterValues({ ...filterValues, type: e.target.value })}
-                                >
-                                    <option value="">All Types</option>
-                                    <option value="individual">Individual</option>
-                                    <option value="company">Company</option>
-                                </Select>
-                                <Select
+                                    onChange={(val) => setFilterValues({ ...filterValues, type: val })}
+                                    placeholder="All Types"
+                                    searchable={false}
+                                />
+                                <MultiSelect
                                     label="Status"
+                                    options={[
+                                        { value: 'active', label: 'Active', color: 'bg-emerald-100 text-emerald-700' },
+                                        { value: 'inactive', label: 'Inactive', color: 'bg-red-100 text-red-700' },
+                                    ]}
                                     value={filterValues.status}
-                                    onChange={(e) => setFilterValues({ ...filterValues, status: e.target.value })}
-                                >
-                                    <option value="">All Statuses</option>
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
-                                </Select>
-                                <Select
+                                    onChange={(val) => setFilterValues({ ...filterValues, status: val })}
+                                    placeholder="All Statuses"
+                                    searchable={false}
+                                />
+                                <MultiSelect
                                     label="City"
+                                    options={cities.map(c => ({ value: c, label: c }))}
                                     value={filterValues.city}
-                                    onChange={(e) => setFilterValues({ ...filterValues, city: e.target.value })}
-                                >
-                                    <option value="">All Cities</option>
-                                    {cities.map((city) => (
-                                        <option key={city} value={city}>{city}</option>
-                                    ))}
-                                </Select>
-                                <Select
+                                    onChange={(val) => setFilterValues({ ...filterValues, city: val })}
+                                    placeholder="All Cities"
+                                    searchPlaceholder="Search cities..."
+                                />
+                                <MultiSelect
                                     label="Country"
+                                    options={countries.map(c => ({ value: c, label: c }))}
                                     value={filterValues.country}
-                                    onChange={(e) => setFilterValues({ ...filterValues, country: e.target.value })}
-                                >
-                                    <option value="">All Countries</option>
-                                    {countries.map((country) => (
-                                        <option key={country} value={country}>{country}</option>
-                                    ))}
-                                </Select>
+                                    onChange={(val) => setFilterValues({ ...filterValues, country: val })}
+                                    placeholder="All Countries"
+                                />
                             </div>
                             <div className="mt-4 flex justify-end gap-2">
                                 <Button type="button" variant="secondary" onClick={clearFilters}>
@@ -261,10 +265,10 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                     {/* Table */}
                     <div className="overflow-x-auto rounded-xl border border-slate-200">
                         <table className="min-w-full divide-y divide-slate-200">
-                            <thead className="bg-slate-50">
+                            <thead className="bg-slate-50/80">
                                 <tr>
                                     <th
-                                        className="cursor-pointer px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-900"
+                                        className="cursor-pointer px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-900"
                                         onClick={() => handleSort('contact_first_name')}
                                     >
                                         <div className="flex items-center gap-2">
@@ -272,11 +276,11 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                             {getSortIcon('contact_first_name')}
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                    <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Type
                                     </th>
                                     <th
-                                        className="cursor-pointer px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-900"
+                                        className="cursor-pointer px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-900"
                                         onClick={() => handleSort('email')}
                                     >
                                         <div className="flex items-center gap-2">
@@ -284,11 +288,11 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                             {getSortIcon('email')}
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                    <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Phone
                                     </th>
                                     <th
-                                        className="cursor-pointer px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-900"
+                                        className="cursor-pointer px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-900"
                                         onClick={() => handleSort('city')}
                                     >
                                         <div className="flex items-center gap-2">
@@ -296,10 +300,10 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                             {getSortIcon('city')}
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                    <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Status
                                     </th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                    <th className="px-5 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Actions
                                     </th>
                                 </tr>
@@ -361,7 +365,7 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                             <div className="flex justify-end gap-1">
                                                 <Link
                                                     href={route('clients.show', client.id)}
-                                                    className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                                                    className="w-8 h-8 rounded-lg text-slate-500 hover:text-violet-600 hover:bg-violet-50 transition-colors inline-flex items-center justify-center"
                                                     title="View"
                                                 >
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -372,7 +376,7 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                                 {hasPermission('clients.edit') && (
                                                     <Link
                                                         href={route('clients.edit', client.id)}
-                                                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                        className="w-8 h-8 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors inline-flex items-center justify-center"
                                                         title="Edit"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -383,7 +387,7 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                                 {hasPermission('clients.delete') && (
                                                     <button
                                                         onClick={() => setDeleteModal(client)}
-                                                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                        className="w-8 h-8 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors inline-flex items-center justify-center"
                                                         title="Delete"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -435,9 +439,9 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                                         href={link.url || '#'}
                                         className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                                             link.active
-                                                ? 'bg-violet-600 text-white'
+                                                ? 'bg-violet-600 text-white rounded-lg'
                                                 : link.url
-                                                ? 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                                                ? 'text-slate-600 hover:bg-slate-200 rounded-lg'
                                                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                         }`}
                                         preserveState

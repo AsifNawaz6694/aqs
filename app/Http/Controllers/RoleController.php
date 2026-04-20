@@ -6,6 +6,7 @@ use App\Models\Role;
 use App\Models\Permission;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -70,29 +71,36 @@ class RoleController extends Controller
             'permissions.*' => 'exists:permissions,id',
         ]);
 
-        $role = Role::create([
-            'name' => $validated['name'],
-            'slug' => Str::slug($validated['name']),
-            'description' => $validated['description'] ?? null,
-            'level' => $validated['level'],
-            'is_system' => false,
-        ]);
+        try {
+            $role = Role::create([
+                'name' => $validated['name'],
+                'slug' => Str::slug($validated['name']),
+                'description' => $validated['description'] ?? null,
+                'level' => $validated['level'],
+                'is_system' => false,
+            ]);
 
-        // Sync permissions
-        if (!empty($validated['permissions'])) {
-            $role->permissions()->sync($validated['permissions']);
+            // Sync permissions
+            if (!empty($validated['permissions'])) {
+                $role->permissions()->sync($validated['permissions']);
+            }
+
+            Log::info('Role created', ['role_id' => $role->id, 'name' => $role->name, 'user_id' => auth()->id()]);
+
+            // Log activity
+            ActivityLog::log(
+                'created',
+                "Created role: {$role->name}",
+                $role,
+                auth()->user(),
+                ['name' => $role->name, 'permissions_count' => count($validated['permissions'] ?? [])]
+            );
+
+            return redirect()->route('roles.index')->with('success', 'Role created successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error creating role: ' . $e->getMessage(), ['user_id' => auth()->id(), 'name' => $validated['name']]);
+            return back()->withInput()->with('error', 'Failed to create role. Please try again.');
         }
-
-        // Log activity
-        ActivityLog::log(
-            'created',
-            "Created role: {$role->name}",
-            $role,
-            auth()->user(),
-            ['name' => $role->name, 'permissions_count' => count($validated['permissions'] ?? [])]
-        );
-
-        return redirect()->route('roles.index')->with('success', 'Role created successfully.');
     }
 
     /**
@@ -127,67 +135,76 @@ class RoleController extends Controller
      */
     public function update(Request $request, Role $role)
     {
-        // Prevent editing system roles' core properties
-        if ($role->is_system) {
-            $validated = $request->validate([
-                'description' => 'nullable|string|max:500',
-                'permissions' => 'array',
-                'permissions.*' => 'exists:permissions,id',
-            ]);
+        try {
+            // Prevent editing system roles' core properties
+            if ($role->is_system) {
+                $validated = $request->validate([
+                    'description' => 'nullable|string|max:500',
+                    'permissions' => 'array',
+                    'permissions.*' => 'exists:permissions,id',
+                ]);
 
-            // System roles can only update description and permissions (except super-admin)
-            if ($role->slug !== 'super-admin') {
+                // System roles can only update description and permissions (except super-admin)
+                if ($role->slug !== 'super-admin') {
+                    $role->update([
+                        'description' => $validated['description'] ?? $role->description,
+                    ]);
+
+                    if (isset($validated['permissions'])) {
+                        $oldPermissions = $role->permissions->pluck('id')->toArray();
+                        $role->permissions()->sync($validated['permissions']);
+
+                        Log::info('System role permissions updated', ['role_id' => $role->id, 'name' => $role->name, 'user_id' => auth()->id()]);
+
+                        ActivityLog::log(
+                            'updated',
+                            "Updated role permissions: {$role->name}",
+                            $role,
+                            auth()->user(),
+                            [],
+                            ['old' => ['permissions' => $oldPermissions], 'new' => ['permissions' => $validated['permissions']]]
+                        );
+                    }
+                }
+            } else {
+                $validated = $request->validate([
+                    'name' => ['required', 'string', 'max:255', Rule::unique('roles')->ignore($role->id)],
+                    'description' => 'nullable|string|max:500',
+                    'level' => 'required|integer|min:1|max:99',
+                    'permissions' => 'array',
+                    'permissions.*' => 'exists:permissions,id',
+                ]);
+
+                $oldData = $role->toArray();
+
                 $role->update([
-                    'description' => $validated['description'] ?? $role->description,
+                    'name' => $validated['name'],
+                    'slug' => Str::slug($validated['name']),
+                    'description' => $validated['description'] ?? null,
+                    'level' => $validated['level'],
                 ]);
 
                 if (isset($validated['permissions'])) {
-                    $oldPermissions = $role->permissions->pluck('id')->toArray();
                     $role->permissions()->sync($validated['permissions']);
-
-                    ActivityLog::log(
-                        'updated',
-                        "Updated role permissions: {$role->name}",
-                        $role,
-                        auth()->user(),
-                        [],
-                        ['old' => ['permissions' => $oldPermissions], 'new' => ['permissions' => $validated['permissions']]]
-                    );
                 }
-            }
-        } else {
-            $validated = $request->validate([
-                'name' => ['required', 'string', 'max:255', Rule::unique('roles')->ignore($role->id)],
-                'description' => 'nullable|string|max:500',
-                'level' => 'required|integer|min:1|max:99',
-                'permissions' => 'array',
-                'permissions.*' => 'exists:permissions,id',
-            ]);
 
-            $oldData = $role->toArray();
+                Log::info('Role updated', ['role_id' => $role->id, 'name' => $role->name, 'user_id' => auth()->id()]);
 
-            $role->update([
-                'name' => $validated['name'],
-                'slug' => Str::slug($validated['name']),
-                'description' => $validated['description'] ?? null,
-                'level' => $validated['level'],
-            ]);
-
-            if (isset($validated['permissions'])) {
-                $role->permissions()->sync($validated['permissions']);
+                ActivityLog::log(
+                    'updated',
+                    "Updated role: {$role->name}",
+                    $role,
+                    auth()->user(),
+                    [],
+                    ['old' => $oldData, 'new' => $role->toArray()]
+                );
             }
 
-            ActivityLog::log(
-                'updated',
-                "Updated role: {$role->name}",
-                $role,
-                auth()->user(),
-                [],
-                ['old' => $oldData, 'new' => $role->toArray()]
-            );
+            return redirect()->route('roles.index')->with('success', 'Role updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating role: ' . $e->getMessage(), ['role_id' => $role->id, 'user_id' => auth()->id()]);
+            return back()->withInput()->with('error', 'Failed to update role. Please try again.');
         }
-
-        return redirect()->route('roles.index')->with('success', 'Role updated successfully.');
     }
 
     /**
@@ -197,6 +214,7 @@ class RoleController extends Controller
     {
         // Prevent deleting system roles
         if ($role->is_system) {
+            Log::warning('Attempt to delete system role', ['role_id' => $role->id, 'name' => $role->name, 'user_id' => auth()->id()]);
             return redirect()->route('roles.index')->with('error', 'System roles cannot be deleted.');
         }
 
@@ -205,20 +223,27 @@ class RoleController extends Controller
             return redirect()->route('roles.index')->with('error', 'Cannot delete role with assigned users. Please reassign users first.');
         }
 
-        $roleData = $role->toArray();
-        $role->permissions()->detach();
-        $role->delete();
+        try {
+            $roleData = $role->toArray();
+            $role->permissions()->detach();
+            $role->delete();
 
-        ActivityLog::log(
-            'deleted',
-            "Deleted role: {$roleData['name']}",
-            null,
-            auth()->user(),
-            $roleData,
-            [],
-            'Role'
-        );
+            Log::info('Role deleted', ['role_id' => $roleData['id'], 'name' => $roleData['name'], 'user_id' => auth()->id()]);
 
-        return redirect()->route('roles.index')->with('success', 'Role deleted successfully.');
+            ActivityLog::log(
+                'deleted',
+                "Deleted role: {$roleData['name']}",
+                null,
+                auth()->user(),
+                $roleData,
+                [],
+                'Role'
+            );
+
+            return redirect()->route('roles.index')->with('success', 'Role deleted successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error deleting role: ' . $e->getMessage(), ['role_id' => $role->id, 'user_id' => auth()->id()]);
+            return back()->with('error', 'Failed to delete role. Please try again.');
+        }
     }
 }

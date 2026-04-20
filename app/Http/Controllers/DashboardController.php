@@ -9,6 +9,7 @@ use App\Models\Quotation;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -24,48 +25,56 @@ class DashboardController extends Controller
      */
     public function index(Request $request)
     {
-        // Parse filters
-        $this->parseFilters($request);
+        try {
+            // Parse filters
+            $this->parseFilters($request);
 
-        // Get users for filter dropdown
-        $users = User::select('id', 'name')->orderBy('name')->get();
+            // Get users for filter dropdown
+            $users = User::select('id', 'name')->orderBy('name')->get();
 
-        // Summary Statistics with safe checks
-        $stats = $this->getStats();
+            // Summary Statistics with safe checks
+            $stats = $this->getStats();
 
-        // Recent Activity (last 10)
-        $recentActivity = $this->getRecentActivity();
+            // Recent Activity (last 10)
+            $recentActivity = $this->getRecentActivity();
 
-        // Activity by Day (last 7 days)
-        $activityByDay = $this->getActivityByDay();
+            // Activity by Day (last 7 days)
+            $activityByDay = $this->getActivityByDay();
 
-        // Products by Category
-        $productsByCategory = $this->getProductsByCategory();
+            // Products by Category
+            $productsByCategory = $this->getProductsByCategory();
 
-        // Clients by Type
-        $clientsByType = $this->getClientsByType();
+            // Clients by Type
+            $clientsByType = $this->getClientsByType();
 
-        // Users by Role
-        $usersByRole = $this->getUsersByRole();
+            // Users by Role
+            $usersByRole = $this->getUsersByRole();
 
-        // Activity by Action Type
-        $activityByAction = $this->getActivityByAction();
+            // Activity by Action Type
+            $activityByAction = $this->getActivityByAction();
 
-        // Quotation Stats
-        $quotationsByStatus = $this->getQuotationsByStatus();
-        $quotationsTrend = $this->getQuotationsTrend();
-        $topClients = $this->getTopClients();
-        $quotationsByMonth = $this->getQuotationsByMonth();
+            // Quotation Stats
+            $quotationsByStatus = $this->getQuotationsByStatus();
+            $quotationsTrend = $this->getQuotationsTrend();
+            $topClients = $this->getTopClients();
+            $quotationsByMonth = $this->getQuotationsByMonth();
 
-        // Top Products and Quotations
-        $topProducts = $this->getTopProducts();
-        $topQuotations = $this->getTopQuotations();
+            // Top Products and Quotations
+            $topProducts = $this->getTopProducts();
+            $topQuotations = $this->getTopQuotations();
 
-        // Monthly Stats
-        $monthlyStats = $this->getMonthlyStats();
+            // Monthly Stats
+            $monthlyStats = $this->getMonthlyStats();
 
-        // Performance metrics
-        $performanceMetrics = $this->getPerformanceMetrics();
+            // Performance metrics
+            $performanceMetrics = $this->getPerformanceMetrics();
+        } catch (\Exception $e) {
+            Log::error('Error loading dashboard data: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'filters' => $request->only(['user_id', 'date_range', 'date_from', 'date_to']),
+            ]);
+            return back()->with('error', 'Failed to load dashboard data. Please try again.');
+        }
 
         return Inertia::render('Dashboard', [
             'stats' => $stats,

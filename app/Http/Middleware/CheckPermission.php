@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class CheckPermission
@@ -35,6 +36,15 @@ class CheckPermission
                 return $next($request);
             }
         }
+
+        Log::warning('Permission denied', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'required_permissions' => $permissions,
+            'url' => $request->fullUrl(),
+            'method' => $request->method(),
+            'ip' => $request->ip(),
+        ]);
 
         if ($request->expectsJson()) {
             return response()->json(['message' => 'You do not have permission to perform this action.'], 403);

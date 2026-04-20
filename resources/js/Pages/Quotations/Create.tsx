@@ -2,8 +2,18 @@ import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import RichTextEditor from '@/Components/RichTextEditor';
 import SearchableSelect from '@/Components/SearchableSelect';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
+
+// Toast notification types
+interface Toast {
+    id: number;
+    type: 'success' | 'error' | 'warning' | 'info';
+    title: string;
+    message: string;
+}
+
+let toastIdCounter = 0;
 
 interface Client {
     id: number;
@@ -142,6 +152,24 @@ export default function Create({
         contact_person: '',
     });
 
+    // Toast notification system
+    const [toasts, setToasts] = useState<Toast[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const showToast = useCallback((type: Toast['type'], title: string, message: string) => {
+        const id = ++toastIdCounter;
+        setToasts(prev => [...prev, { id, type, title, message }]);
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, type === 'error' ? 8000 : 5000);
+    }, []);
+
+    const dismissToast = useCallback((id: number) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, []);
+
+    const STORAGE_KEY = 'quotation_draft_create';
+
     // Sync phone code with country selection for new client
     const handleNewClientCountryChange = (countryName: string) => {
         const country = GCC_COUNTRIES.find(c => c.name === countryName);
@@ -175,6 +203,64 @@ export default function Create({
         terms_and_conditions: defaultTerms,
         items: [] as QuotationItem[],
     });
+
+    // Auto-save draft to localStorage every 30 seconds
+    const saveDraftToStorage = useCallback(() => {
+        try {
+            const draft = {
+                formData: data,
+                items,
+                savedAt: new Date().toISOString(),
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+        } catch (e) {
+            // localStorage might be full or unavailable
+        }
+    }, [data, items]);
+
+    useEffect(() => {
+        if (items.length === 0) return;
+        const interval = setInterval(saveDraftToStorage, 30000);
+        return () => clearInterval(interval);
+    }, [items, saveDraftToStorage]);
+
+    // Restore draft on mount
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const draft = JSON.parse(saved);
+                const savedAt = new Date(draft.savedAt);
+                const hoursSince = (Date.now() - savedAt.getTime()) / (1000 * 60 * 60);
+                if (hoursSince < 24 && draft.items?.length > 0) {
+                    showToast('info', 'Draft Found', `You have an unsaved draft from ${savedAt.toLocaleString()}. It has been restored.`);
+                    setItems(draft.items);
+                    if (draft.formData) {
+                        Object.entries(draft.formData).forEach(([key, value]) => {
+                            if (key !== 'items') {
+                                setData(key as any, value as any);
+                            }
+                        });
+                    }
+                } else {
+                    localStorage.removeItem(STORAGE_KEY);
+                }
+            }
+        } catch (e) {
+            // Ignore parse errors
+        }
+    }, []);
+
+    // Warn before leaving with unsaved changes
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (items.length > 0) {
+                e.preventDefault();
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [items]);
 
     // Calculate item totals (VAT-exclusive display)
     const calculateItemTotal = (item: QuotationItem) => {
@@ -294,15 +380,38 @@ export default function Create({
         setShowSearchDropdown(true);
 
         try {
-            const response = await fetch(`${route('quotations.search-products')}?search=${encodeURIComponent(query)}`);
+            const csrfToken = document.head.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+            const response = await fetch(`${route('quotations.search-products')}?search=${encodeURIComponent(query)}`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {}),
+                },
+                credentials: 'same-origin',
+            });
+
+            if (response.status === 419) {
+                showToast('warning', 'Session Expiring', 'Your session may have expired. Please save your work and refresh.');
+                setSearchResults([]);
+                setIsSearching(false);
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error(`Search failed (${response.status})`);
+            }
+
             const data = await response.json();
             setSearchResults(data.products || []);
         } catch (error) {
             console.error('Error searching products:', error);
             setSearchResults([]);
+            if (error instanceof TypeError && error.message.includes('fetch')) {
+                showToast('warning', 'Network Error', 'Could not reach the server. Please check your connection.');
+            }
         }
         setIsSearching(false);
-    }, []);
+    }, [showToast]);
 
     // Debounced search - reduced to 200ms for faster response
     useEffect(() => {
@@ -541,20 +650,43 @@ export default function Create({
     const handleSubmit = (e: React.FormEvent, submitForReview = false) => {
         e.preventDefault();
 
+        // Client-side validation with toast feedback
+        const validationErrors: string[] = [];
+
         if (!data.client_id) {
-            alert('Please select a client.');
-            return;
+            validationErrors.push('Please select a client');
         }
-
-        if (!data.customer_reference) {
-            alert('Please enter customer reference.');
-            return;
+        if (!data.customer_reference?.trim()) {
+            validationErrors.push('Customer reference is required');
         }
-
+        if (!data.quotation_date) {
+            validationErrors.push('Quotation date is required');
+        }
+        if (!data.valid_until) {
+            validationErrors.push('Valid until date is required');
+        }
         if (items.length === 0) {
-            alert('Please add at least one item to the quotation.');
+            validationErrors.push('Add at least one item to the quotation');
+        }
+        // Check that all items have names and valid prices
+        items.forEach((item, i) => {
+            if (!item.name?.trim()) {
+                validationErrors.push(`Item #${i + 1} is missing a name`);
+            }
+            if (item.unit_price < 0) {
+                validationErrors.push(`Item #${i + 1} has an invalid price`);
+            }
+        });
+
+        if (validationErrors.length > 0) {
+            showToast('error', 'Please fix the following', validationErrors.join('. '));
             return;
         }
+
+        setIsSaving(true);
+
+        // Save draft before submitting (safety net)
+        saveDraftToStorage();
 
         // Transform items to backend format
         const transformedItems = items.map(item => ({
@@ -607,19 +739,53 @@ export default function Create({
             submit_for_review: submitForReview,
         };
 
-        router.post(route('quotations.store'), formData as any, {
-            preserveScroll: true,
-            onError: (errors) => {
-                console.error('Quotation save errors:', errors);
-                // Show first error to user
-                const firstError = Object.values(errors)[0];
-                if (firstError) {
-                    alert(typeof firstError === 'string' ? firstError : 'Validation failed. Please check your input.');
-                }
+        // Use axios with JSON payload to avoid PHP max_input_vars limit
+        // (form-encoded data creates one var per field — items with 20 fields each
+        //  easily exceeds the default 1000 limit, causing silent truncation and 419 errors)
+        axios.post(route('quotations.store'), formData, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
             },
-            onSuccess: () => {
-                console.log('Quotation saved successfully');
-            },
+        })
+        .then((response) => {
+            setIsSaving(false);
+            localStorage.removeItem(STORAGE_KEY);
+            showToast('success', 'Quotation Saved', submitForReview ? 'Quotation saved and submitted for review.' : 'Quotation saved as draft.');
+
+            // Redirect to the show page
+            if (response.data?.redirect) {
+                router.visit(response.data.redirect);
+            } else if (response.data?.quotation?.id) {
+                router.visit(route('quotations.show', response.data.quotation.id));
+            } else {
+                router.visit(route('quotations.index'));
+            }
+        })
+        .catch((error) => {
+            setIsSaving(false);
+            console.error('Quotation save error:', error);
+
+            if (error.response?.status === 419) {
+                showToast('error', 'Session Expired', 'Your session has expired. The page will refresh — your data has been saved locally.');
+                saveDraftToStorage();
+                setTimeout(() => window.location.reload(), 2000);
+                return;
+            }
+
+            if (error.response?.status === 422 && error.response?.data?.errors) {
+                const validationErrors = error.response.data.errors;
+                const errorMessages = Object.entries(validationErrors).map(([key, value]) => {
+                    const label = key.replace(/items\.\d+\./, 'Item: ').replace(/_/g, ' ');
+                    return `${label}: ${Array.isArray(value) ? value[0] : value}`;
+                });
+                showToast('error', 'Validation Failed', errorMessages.slice(0, 5).join('. ') + (errorMessages.length > 5 ? ` ...and ${errorMessages.length - 5} more` : ''));
+                return;
+            }
+
+            const message = error.response?.data?.message || error.response?.data?.error || error.message || 'An unexpected error occurred';
+            showToast('error', 'Failed to save quotation', message);
         });
     };
 
@@ -646,6 +812,43 @@ export default function Create({
                     <span className="text-slate-400">/</span>
                     <span className="text-slate-900 font-medium">Create New</span>
                 </div>
+
+                {/* Flash messages */}
+                {flash?.success && (
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 flex items-center gap-3">
+                        <svg className="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-sm font-medium text-emerald-800">{flash.success}</p>
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="rounded-xl bg-red-50 border border-red-200 p-4 flex items-center gap-3">
+                        <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-sm font-medium text-red-800">{flash.error}</p>
+                    </div>
+                )}
+
+                {/* Validation errors summary */}
+                {Object.keys(errors).length > 0 && (
+                    <div className="rounded-xl bg-red-50 border border-red-200 p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="text-sm font-semibold text-red-800">Please fix the following errors:</p>
+                        </div>
+                        <ul className="list-disc list-inside space-y-1 ml-7">
+                            {Object.entries(errors).map(([key, message]) => (
+                                <li key={key} className="text-sm text-red-600">
+                                    {key.replace(/items\.\d+\./, 'Item: ').replace(/_/g, ' ')}: {message}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 <form onSubmit={(e) => handleSubmit(e, false)}>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1304,19 +1507,31 @@ export default function Create({
                                     <div className="space-y-3">
                                         <button
                                             type="submit"
-                                            disabled={processing}
-                                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-3 text-sm font-medium text-white hover:from-violet-700 hover:to-purple-700 shadow-lg shadow-violet-500/30 transition-all disabled:opacity-50"
+                                            disabled={processing || isSaving}
+                                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-3 text-sm font-medium text-white hover:from-violet-700 hover:to-purple-700 shadow-lg shadow-violet-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                            Save as Draft
+                                            {isSaving ? (
+                                                <>
+                                                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                                    </svg>
+                                                    Saving...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                    Save as Draft
+                                                </>
+                                            )}
                                         </button>
                                         <button
                                             type="button"
                                             onClick={(e) => handleSubmit(e, true)}
-                                            disabled={processing}
-                                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700 hover:bg-violet-100 transition-all disabled:opacity-50"
+                                            disabled={processing || isSaving}
+                                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700 hover:bg-violet-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -1531,6 +1746,77 @@ export default function Create({
                     </div>
                 )}
             </div>
+
+            {/* Toast Notifications */}
+            <div className="fixed top-4 right-4 z-[100] space-y-3 max-w-md w-full pointer-events-none">
+                {toasts.map((toast) => (
+                    <div
+                        key={toast.id}
+                        className={`pointer-events-auto rounded-xl shadow-2xl border p-4 flex items-start gap-3 animate-slide-in-right ${
+                            toast.type === 'success' ? 'bg-emerald-50 border-emerald-200' :
+                            toast.type === 'error' ? 'bg-red-50 border-red-200' :
+                            toast.type === 'warning' ? 'bg-amber-50 border-amber-200' :
+                            'bg-blue-50 border-blue-200'
+                        }`}
+                    >
+                        <div className="flex-shrink-0 mt-0.5">
+                            {toast.type === 'success' && (
+                                <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            )}
+                            {toast.type === 'error' && (
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            )}
+                            {toast.type === 'warning' && (
+                                <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            )}
+                            {toast.type === 'info' && (
+                                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold ${
+                                toast.type === 'success' ? 'text-emerald-800' :
+                                toast.type === 'error' ? 'text-red-800' :
+                                toast.type === 'warning' ? 'text-amber-800' :
+                                'text-blue-800'
+                            }`}>{toast.title}</p>
+                            <p className={`text-sm mt-0.5 ${
+                                toast.type === 'success' ? 'text-emerald-600' :
+                                toast.type === 'error' ? 'text-red-600' :
+                                toast.type === 'warning' ? 'text-amber-600' :
+                                'text-blue-600'
+                            }`}>{toast.message}</p>
+                        </div>
+                        <button
+                            onClick={() => dismissToast(toast.id)}
+                            className="flex-shrink-0 p-1 rounded-lg hover:bg-black/5 transition-colors"
+                        >
+                            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                ))}
+            </div>
+
+            {/* CSS animation for toast */}
+            <style>{`
+                @keyframes slide-in-right {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+                .animate-slide-in-right {
+                    animation: slide-in-right 0.3s ease-out;
+                }
+            `}</style>
         </AuthenticatedLayout>
     );
 }

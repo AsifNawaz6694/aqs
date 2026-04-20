@@ -59,6 +59,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/activity-logs/export', [ActivityLogController::class, 'export'])->name('activity-logs.export')->middleware('permission:activity-logs.export');
     Route::get('/activity-logs/{activityLog}', [ActivityLogController::class, 'show'])->name('activity-logs.show')->middleware('permission:activity-logs.view');
 
+    // Job monitoring routes (under activity-logs permission)
+    Route::post('/jobs/failed/{id}/retry', [ActivityLogController::class, 'retryFailedJob'])->name('jobs.retry')->middleware('permission:activity-logs.view');
+    Route::delete('/jobs/failed/{id}', [ActivityLogController::class, 'deleteFailedJob'])->name('jobs.delete-failed')->middleware('permission:activity-logs.view');
+    Route::post('/jobs/failed/flush', [ActivityLogController::class, 'flushFailedJobs'])->name('jobs.flush-failed')->middleware('permission:activity-logs.view');
+    Route::post('/jobs/failed/retry-all', [ActivityLogController::class, 'retryAllFailedJobs'])->name('jobs.retry-all')->middleware('permission:activity-logs.view');
+
     // Product routes
     Route::get('/products', [ProductController::class, 'index'])->name('products.index')->middleware('permission:products.view');
     Route::get('/products/export', [ProductController::class, 'export'])->name('products.export')->middleware('permission:products.export');

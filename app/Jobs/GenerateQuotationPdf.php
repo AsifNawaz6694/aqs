@@ -12,6 +12,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class GenerateQuotationPdf implements ShouldQueue
@@ -34,6 +35,11 @@ class GenerateQuotationPdf implements ShouldQueue
      */
     public function handle(PDF $pdf): void
     {
+        Log::info('Generating quotation PDF', [
+            'quotation_number' => $this->quotation->quotation_number,
+            'user_id' => $this->user?->id,
+        ]);
+
         $this->quotation->load([
             'client',
             'user:id,name,email',
@@ -95,6 +101,11 @@ class GenerateQuotationPdf implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
+        Log::error('Quotation PDF generation failed', [
+            'quotation_number' => $this->quotation->quotation_number,
+            'error' => $exception->getMessage(),
+        ]);
+
         if ($this->user) {
             ActivityLog::log(
                 'pdf_failed',

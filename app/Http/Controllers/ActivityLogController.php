@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Artisan;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -19,25 +22,29 @@ class ActivityLogController extends Controller
             ->with('causer')
             ->latest();
 
-        // Filter by user (causer)
+        // Filter by user (supports comma-separated multi-select)
         if ($request->filled('user_id')) {
-            $query->where('causer_id', $request->user_id)
+            $userIds = array_filter(explode(',', $request->user_id));
+            $query->whereIn('causer_id', $userIds)
                   ->where('causer_type', User::class);
         }
 
-        // Filter by event
+        // Filter by event (supports comma-separated multi-select)
         if ($request->filled('event')) {
-            $query->where('event', $request->event);
+            $events = array_filter(explode(',', $request->event));
+            $query->whereIn('event', $events);
         }
 
-        // Filter by subject type
+        // Filter by subject type (supports comma-separated multi-select)
         if ($request->filled('subject_type')) {
-            $query->where('subject_type', $request->subject_type);
+            $subjectTypes = array_filter(explode(',', $request->subject_type));
+            $query->whereIn('subject_type', $subjectTypes);
         }
 
-        // Filter by module
+        // Filter by module (supports comma-separated multi-select)
         if ($request->filled('module')) {
-            $query->where('module', $request->module);
+            $modules = array_filter(explode(',', $request->module));
+            $query->whereIn('module', $modules);
         }
 
         // Filter by date range
@@ -93,6 +100,9 @@ class ActivityLogController extends Controller
             ->values();
         $modules = ActivityLog::distinct()->pluck('module')->filter()->values();
 
+        // Job monitoring data
+        $jobStats = $this->getJobStats();
+
         return Inertia::render('ActivityLogs/Index', [
             'logs' => $logs,
             'users' => $users,
@@ -100,6 +110,7 @@ class ActivityLogController extends Controller
             'subjectTypes' => $subjectTypes,
             'modules' => $modules,
             'filters' => $request->only(['user_id', 'event', 'subject_type', 'module', 'date_from', 'date_to', 'search']),
+            'jobStats' => $jobStats,
         ]);
     }
 
@@ -140,34 +151,42 @@ class ActivityLogController extends Controller
      */
     public function export(Request $request): StreamedResponse
     {
-        $query = ActivityLog::query()
-            ->with('causer')
-            ->latest();
+        try {
+            $query = ActivityLog::query()
+                ->with('causer')
+                ->latest();
 
-        // Apply same filters as index
-        if ($request->filled('user_id')) {
-            $query->where('causer_id', $request->user_id)
-                  ->where('causer_type', User::class);
-        }
-        if ($request->filled('event')) {
-            $query->where('event', $request->event);
-        }
-        if ($request->filled('subject_type')) {
-            $query->where('subject_type', $request->subject_type);
-        }
-        if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
-        }
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where('description', 'like', "%{$search}%");
-        }
+            // Apply same filters as index
+            if ($request->filled('user_id')) {
+                $query->where('causer_id', $request->user_id)
+                      ->where('causer_type', User::class);
+            }
+            if ($request->filled('event')) {
+                $query->where('event', $request->event);
+            }
+            if ($request->filled('subject_type')) {
+                $query->where('subject_type', $request->subject_type);
+            }
+            if ($request->filled('date_from')) {
+                $query->whereDate('created_at', '>=', $request->date_from);
+            }
+            if ($request->filled('date_to')) {
+                $query->whereDate('created_at', '<=', $request->date_to);
+            }
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where('description', 'like', "%{$search}%");
+            }
 
-        $logs = $query->get();
-        $filename = 'activity-logs-' . date('Y-m-d-His') . '.csv';
+            $logs = $query->get();
+            $filename = 'activity-logs-' . date('Y-m-d-His') . '.csv';
+
+            Log::info('Activity logs exported', [
+                'user_id' => auth()->id(),
+                'count' => $logs->count(),
+                'filename' => $filename,
+                'filters' => $request->only(['user_id', 'event', 'subject_type', 'date_from', 'date_to', 'search']),
+            ]);
 
         $headers = [
             'Content-Type' => 'text/csv',
@@ -212,5 +231,121 @@ class ActivityLogController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+        } catch (\Exception $e) {
+            Log::error('Error exporting activity logs: ' . $e->getMessage(), ['user_id' => auth()->id()]);
+            return back()->with('error', 'Failed to export activity logs. Please try again.');
+        }
+    }
+
+    /**
+     * Get job queue statistics.
+     */
+    private function getJobStats(): array
+    {
+        $pendingJobs = DB::table('jobs')->select('id', 'queue', 'payload', 'attempts', 'created_at', 'available_at', 'reserved_at')
+            ->orderBy('id', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(function ($job) {
+                $payload = json_decode($job->payload, true);
+                $jobClass = $payload['displayName'] ?? 'Unknown';
+                return [
+                    'id' => $job->id,
+                    'queue' => $job->queue,
+                    'job_class' => class_basename($jobClass),
+                    'job_class_full' => $jobClass,
+                    'attempts' => $job->attempts,
+                    'is_reserved' => $job->reserved_at !== null,
+                    'created_at' => date('Y-m-d H:i:s', $job->created_at),
+                    'available_at' => date('Y-m-d H:i:s', $job->available_at),
+                    'reserved_at' => $job->reserved_at ? date('Y-m-d H:i:s', $job->reserved_at) : null,
+                ];
+            });
+
+        $failedJobs = DB::table('failed_jobs')->select('id', 'uuid', 'connection', 'queue', 'payload', 'exception', 'failed_at')
+            ->orderBy('id', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(function ($job) {
+                $payload = json_decode($job->payload, true);
+                $jobClass = $payload['displayName'] ?? 'Unknown';
+                $exceptionLines = explode("\n", $job->exception);
+                return [
+                    'id' => $job->id,
+                    'uuid' => $job->uuid,
+                    'queue' => $job->queue,
+                    'job_class' => class_basename($jobClass),
+                    'job_class_full' => $jobClass,
+                    'exception_summary' => $exceptionLines[0] ?? 'Unknown error',
+                    'exception_full' => $job->exception,
+                    'failed_at' => $job->failed_at,
+                ];
+            });
+
+        return [
+            'pending_count' => DB::table('jobs')->count(),
+            'reserved_count' => DB::table('jobs')->whereNotNull('reserved_at')->count(),
+            'failed_count' => DB::table('failed_jobs')->count(),
+            'pending_jobs' => $pendingJobs,
+            'failed_jobs' => $failedJobs,
+        ];
+    }
+
+    /**
+     * Retry a failed job.
+     */
+    public function retryFailedJob(Request $request, $id)
+    {
+        $job = DB::table('failed_jobs')->where('id', $id)->first();
+
+        if (!$job) {
+            return response()->json(['message' => 'Failed job not found.'], 404);
+        }
+
+        try {
+            Artisan::call('queue:retry', ['id' => [$job->uuid]]);
+
+            return response()->json(['message' => 'Job has been pushed back to the queue.']);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to retry job: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Delete a failed job.
+     */
+    public function deleteFailedJob(Request $request, $id)
+    {
+        $deleted = DB::table('failed_jobs')->where('id', $id)->delete();
+
+        if (!$deleted) {
+            return response()->json(['message' => 'Failed job not found.'], 404);
+        }
+
+        return response()->json(['message' => 'Failed job deleted.']);
+    }
+
+    /**
+     * Flush all failed jobs.
+     */
+    public function flushFailedJobs()
+    {
+        DB::table('failed_jobs')->truncate();
+
+        return response()->json(['message' => 'All failed jobs have been cleared.']);
+    }
+
+    /**
+     * Retry all failed jobs.
+     */
+    public function retryAllFailedJobs()
+    {
+        try {
+            Artisan::call('queue:retry', ['id' => ['all']]);
+
+            return response()->json(['message' => 'All failed jobs have been pushed back to the queue.']);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to retry jobs: ' . $e->getMessage()], 500);
+        }
     }
 }

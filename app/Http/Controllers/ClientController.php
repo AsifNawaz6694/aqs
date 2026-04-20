@@ -33,24 +33,28 @@ class ClientController extends Controller
                 });
             }
 
-            // Filter by type
+            // Filter by type (supports comma-separated multi-select)
             if ($request->filled('type')) {
-                $query->where('type', $request->type);
+                $types = array_filter(explode(',', $request->type));
+                $query->whereIn('type', $types);
             }
 
-            // Filter by status
+            // Filter by status (supports comma-separated multi-select)
             if ($request->filled('status')) {
-                $query->where('status', $request->status);
+                $statuses = array_filter(explode(',', $request->status));
+                $query->whereIn('status', $statuses);
             }
 
-            // Filter by city
+            // Filter by city (supports comma-separated multi-select)
             if ($request->filled('city')) {
-                $query->where('city', $request->city);
+                $cities = array_filter(explode(',', $request->city));
+                $query->whereIn('city', $cities);
             }
 
-            // Filter by country
+            // Filter by country (supports comma-separated multi-select)
             if ($request->filled('country')) {
-                $query->where('country', $request->country);
+                $countries = array_filter(explode(',', $request->country));
+                $query->whereIn('country', $countries);
             }
 
             // Sort

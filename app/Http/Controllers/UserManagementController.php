@@ -38,27 +38,35 @@ class UserManagementController extends Controller
                 });
             }
 
-            // Role filter
+            // Role filter (supports comma-separated multi-select)
             if ($request->filled('role_id')) {
-                $query->where('role_id', $request->role_id);
+                $roleIds = array_filter(explode(',', $request->role_id));
+                $query->whereIn('role_id', $roleIds);
             }
 
-            // Status filter
+            // Status filter (supports comma-separated multi-select)
             if ($request->filled('status')) {
-                switch ($request->status) {
-                    case 'active':
-                        $query->where('password_set', true)->where('status', 'active');
-                        break;
-                    case 'pending':
-                        $query->where('password_set', false);
-                        break;
-                    case 'inactive':
-                        $query->where('status', 'inactive');
-                        break;
-                    case 'suspended':
-                        $query->where('status', 'suspended');
-                        break;
-                }
+                $statuses = array_filter(explode(',', $request->status));
+                $query->where(function ($q) use ($statuses) {
+                    foreach ($statuses as $status) {
+                        $q->orWhere(function ($sub) use ($status) {
+                            switch ($status) {
+                                case 'active':
+                                    $sub->where('password_set', true)->where('status', 'active');
+                                    break;
+                                case 'pending':
+                                    $sub->where('password_set', false);
+                                    break;
+                                case 'inactive':
+                                    $sub->where('status', 'inactive');
+                                    break;
+                                case 'suspended':
+                                    $sub->where('status', 'suspended');
+                                    break;
+                            }
+                        });
+                    }
+                });
             }
 
             // Date range filter

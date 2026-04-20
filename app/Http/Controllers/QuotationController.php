@@ -15,6 +15,7 @@ use App\Services\EkuepApiService;
 use App\Services\FileParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Inertia\Inertia;
@@ -30,19 +31,22 @@ class QuotationController extends Controller
         $query = Quotation::with(['client:id,name,company_name,contact_person', 'user:id,name'])
             ->latest();
 
-        // Filter by status
+        // Filter by status (supports comma-separated multi-select)
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $statuses = array_filter(explode(',', $request->status));
+            $query->whereIn('status', $statuses);
         }
 
-        // Filter by client
+        // Filter by client (supports comma-separated multi-select)
         if ($request->filled('client_id')) {
-            $query->where('client_id', $request->client_id);
+            $clientIds = array_filter(explode(',', $request->client_id));
+            $query->whereIn('client_id', $clientIds);
         }
 
-        // Filter by user
+        // Filter by user (supports comma-separated multi-select)
         if ($request->filled('user_id')) {
-            $query->where('user_id', $request->user_id);
+            $userIds = array_filter(explode(',', $request->user_id));
+            $query->whereIn('user_id', $userIds);
         }
 
         // Filter by date range
@@ -284,10 +288,30 @@ class QuotationController extends Controller
 
             DB::commit();
 
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Quotation created successfully.',
+                    'quotation' => $quotation,
+                    'redirect' => route('quotations.show', $quotation),
+                ]);
+            }
+
             return redirect()->route('quotations.show', $quotation)
                 ->with('success', 'Quotation created successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Error creating quotation: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'client_id' => $validated['client_id'] ?? null,
+            ]);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Failed to create quotation: ' . $e->getMessage(),
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+
             return back()->withErrors(['error' => 'Failed to create quotation: ' . $e->getMessage()]);
         }
     }
@@ -571,10 +595,31 @@ class QuotationController extends Controller
 
             DB::commit();
 
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Quotation updated successfully.',
+                    'quotation' => $quotation->fresh(),
+                    'redirect' => route('quotations.show', $quotation),
+                ]);
+            }
+
             return redirect()->route('quotations.show', $quotation)
                 ->with('success', 'Quotation updated successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error('Error updating quotation: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'quotation_id' => $quotation->id,
+                'quotation_number' => $quotation->quotation_number,
+            ]);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Failed to update quotation: ' . $e->getMessage(),
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+
             return back()->withErrors(['error' => 'Failed to update quotation: ' . $e->getMessage()]);
         }
     }
@@ -826,6 +871,12 @@ class QuotationController extends Controller
                 'quotation' => $quotation->fresh(),
             ]);
         } catch (\Exception $e) {
+            Log::error('Error changing quotation status: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'quotation_id' => $quotation->id,
+                'from_status' => $currentStatus,
+                'to_status' => $newStatus,
+            ]);
             return response()->json([
                 'message' => 'Failed to update status: ' . $e->getMessage(),
             ], 500);
@@ -936,6 +987,11 @@ class QuotationController extends Controller
                 'Content-Disposition' => 'attachment; filename="Quotation-' . $quotation->quotation_number . '.pdf"',
             ]);
         } catch (\Exception $e) {
+            Log::error('Error generating PDF on-the-fly: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'quotation_id' => $quotation->id,
+                'quotation_number' => $quotation->quotation_number,
+            ]);
             return back()->withErrors(['error' => 'Failed to generate PDF: ' . $e->getMessage()]);
         }
     }
@@ -945,6 +1001,7 @@ class QuotationController extends Controller
      */
     public function export(Request $request): StreamedResponse
     {
+        try {
         $query = Quotation::with(['client:id,company_name', 'user:id,name'])->latest();
 
         // Apply filters
@@ -963,6 +1020,22 @@ class QuotationController extends Controller
 
         $quotations = $query->get();
         $filename = 'quotations-' . date('Y-m-d-His') . '.csv';
+
+        Log::info('Quotations exported', [
+            'user_id' => auth()->id(),
+            'count' => $quotations->count(),
+            'filename' => $filename,
+        ]);
+
+        ActivityLog::log(
+            'exported',
+            "Exported {$quotations->count()} quotations to CSV",
+            null,
+            auth()->user(),
+            ['count' => $quotations->count(), 'filename' => $filename],
+            [],
+            'quotations'
+        );
 
         $headers = [
             'Content-Type' => 'text/csv',
@@ -1008,6 +1081,10 @@ class QuotationController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+        } catch (\Exception $e) {
+            Log::error('Error exporting quotations: ' . $e->getMessage(), ['user_id' => auth()->id()]);
+            return back()->with('error', 'Failed to export quotations. Please try again.');
+        }
     }
 
     /**
@@ -1074,11 +1151,21 @@ class QuotationController extends Controller
                 ], 422);
             }
 
+            Log::info('File parsed for quotation', [
+                'user_id' => auth()->id(),
+                'filename' => $file->getClientOriginalName(),
+                'rows' => $parsedData['total_rows'] ?? 0,
+            ]);
+
             return response()->json([
                 'success' => true,
                 'data' => $parsedData,
             ]);
         } catch (\Exception $e) {
+            Log::error('Error parsing file for quotation: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'filename' => $file->getClientOriginalName(),
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to parse file: ' . $e->getMessage(),

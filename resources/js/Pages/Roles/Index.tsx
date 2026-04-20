@@ -72,7 +72,7 @@ export default function Index({ roles, filters }: Props) {
 
     return (
         <AuthenticatedLayout
-            header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Role Management</h2>}
+            header={<h2 className="text-xl font-semibold leading-tight text-slate-800">Role Management</h2>}
         >
             <Head title="Roles" />
 
@@ -89,20 +89,20 @@ export default function Index({ roles, filters }: Props) {
                         </div>
                     )}
 
-                    <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div className="overflow-hidden bg-white shadow-sm border border-slate-200 sm:rounded-2xl">
                         <div className="p-6">
                             {/* Header */}
                             <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                     <h3 className="text-lg font-medium">Roles</h3>
-                                    <p className="text-sm text-gray-600">
+                                    <p className="text-sm text-slate-600">
                                         Manage roles and their permissions
                                     </p>
                                 </div>
                                 {hasPermission('roles.create') && (
                                     <Link
                                         href={route('roles.create')}
-                                        className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                                        className="rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-700 hover:to-purple-700 shadow-lg shadow-violet-500/30 transition-all inline-flex items-center"
                                     >
                                         Create Role
                                     </Link>
@@ -117,18 +117,18 @@ export default function Index({ roles, filters }: Props) {
                                         placeholder="Search roles..."
                                         value={search}
                                         onChange={(e) => setSearch(e.target.value)}
-                                        className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        className="flex-1 rounded-md border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500/20"
                                     />
                                     <button
                                         type="submit"
-                                        className="rounded-md bg-gray-600 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
+                                        className="rounded-md bg-slate-600 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
                                     >
                                         Search
                                     </button>
                                     {filters.search && (
                                         <Link
                                             href={route('roles.index')}
-                                            className="rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-300"
+                                            className="rounded-md bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
                                         >
                                             Clear
                                         </Link>
@@ -138,50 +138,50 @@ export default function Index({ roles, filters }: Props) {
 
                             {/* Table */}
                             <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
+                                <table className="min-w-full divide-y divide-slate-200">
+                                    <thead className="bg-slate-50/80">
                                         <tr>
                                             <th
-                                                className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                                                className="cursor-pointer px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500"
                                                 onClick={() => handleSort('name')}
                                             >
                                                 Name {getSortIcon('name')}
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                                 Description
                                             </th>
                                             <th
-                                                className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                                                className="cursor-pointer px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500"
                                                 onClick={() => handleSort('level')}
                                             >
                                                 Level {getSortIcon('level')}
                                             </th>
                                             <th
-                                                className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                                                className="cursor-pointer px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500"
                                                 onClick={() => handleSort('users_count')}
                                             >
                                                 Users {getSortIcon('users_count')}
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                                 Permissions
                                             </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                                 Type
                                             </th>
-                                            <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            <th className="px-5 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                                 Actions
                                             </th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-200 bg-white">
+                                    <tbody className="divide-y divide-slate-200 bg-white">
                                         {roles.data.map((role) => (
-                                            <tr key={role.id} className="hover:bg-gray-50">
+                                            <tr key={role.id} className="hover:bg-slate-50 transition-colors">
                                                 <td className="whitespace-nowrap px-6 py-4">
-                                                    <div className="font-medium text-gray-900">{role.name}</div>
-                                                    <div className="text-sm text-gray-500">{role.slug}</div>
+                                                    <div className="font-medium text-slate-900">{role.name}</div>
+                                                    <div className="text-sm text-slate-500">{role.slug}</div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <div className="max-w-xs truncate text-sm text-gray-500">
+                                                    <div className="max-w-xs truncate text-sm text-slate-500">
                                                         {role.description || '-'}
                                                     </div>
                                                 </td>
@@ -190,10 +190,10 @@ export default function Index({ roles, filters }: Props) {
                                                         Level {role.level}
                                                     </span>
                                                 </td>
-                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                                     {role.users_count}
                                                 </td>
-                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                                     {role.slug === 'super-admin' ? 'All' : role.permissions_count}
                                                 </td>
                                                 <td className="whitespace-nowrap px-6 py-4">
@@ -202,27 +202,29 @@ export default function Index({ roles, filters }: Props) {
                                                             System
                                                         </span>
                                                     ) : (
-                                                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-800">
                                                             Custom
                                                         </span>
                                                     )}
                                                 </td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
-                                                    <div className="flex justify-end gap-2">
+                                                    <div className="flex justify-end gap-1">
                                                         {hasPermission('roles.edit') && role.slug !== 'super-admin' && (
                                                             <Link
                                                                 href={route('roles.edit', role.id)}
-                                                                className="text-indigo-600 hover:text-indigo-900"
+                                                                className="w-8 h-8 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors inline-flex items-center justify-center"
+                                                                title="Edit"
                                                             >
-                                                                Edit
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                                                             </Link>
                                                         )}
                                                         {hasPermission('roles.delete') && !role.is_system && (
                                                             <button
                                                                 onClick={() => setDeleteModal(role)}
-                                                                className="text-red-600 hover:text-red-900"
+                                                                className="w-8 h-8 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors inline-flex items-center justify-center"
+                                                                title="Delete"
                                                             >
-                                                                Delete
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                                             </button>
                                                         )}
                                                     </div>
@@ -231,7 +233,7 @@ export default function Index({ roles, filters }: Props) {
                                         ))}
                                         {roles.data.length === 0 && (
                                             <tr>
-                                                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                                                <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                                                     No roles found.
                                                 </td>
                                             </tr>
@@ -243,7 +245,7 @@ export default function Index({ roles, filters }: Props) {
                             {/* Pagination */}
                             {roles.last_page > 1 && (
                                 <div className="mt-6 flex items-center justify-between">
-                                    <div className="text-sm text-gray-500">
+                                    <div className="text-sm text-slate-500">
                                         Showing {(roles.current_page - 1) * roles.per_page + 1} to{' '}
                                         {Math.min(roles.current_page * roles.per_page, roles.total)} of{' '}
                                         {roles.total} results
@@ -253,12 +255,12 @@ export default function Index({ roles, filters }: Props) {
                                             <Link
                                                 key={index}
                                                 href={link.url || '#'}
-                                                className={`rounded-md px-3 py-2 text-sm ${
+                                                className={`rounded-lg px-3 py-2 text-sm ${
                                                     link.active
-                                                        ? 'bg-indigo-600 text-white'
+                                                        ? 'bg-violet-600 text-white'
                                                         : link.url
-                                                        ? 'bg-white text-gray-700 hover:bg-gray-50'
-                                                        : 'cursor-not-allowed bg-gray-100 text-gray-400'
+                                                        ? 'text-slate-600 hover:bg-slate-200 rounded-lg'
+                                                        : 'cursor-not-allowed bg-slate-100 text-slate-400'
                                                 }`}
                                                 preserveState
                                                 dangerouslySetInnerHTML={{ __html: link.label }}
@@ -274,15 +276,15 @@ export default function Index({ roles, filters }: Props) {
             {/* Delete Modal */}
             {deleteModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                    <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-                        <h3 className="mb-4 text-lg font-medium text-gray-900">Delete Role</h3>
-                        <p className="mb-6 text-sm text-gray-500">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
+                        <h3 className="mb-4 text-lg font-medium text-slate-900">Delete Role</h3>
+                        <p className="mb-6 text-sm text-slate-500">
                             Are you sure you want to delete the role "{deleteModal.name}"? This action cannot be undone.
                         </p>
                         <div className="flex justify-end gap-3">
                             <button
                                 onClick={() => setDeleteModal(null)}
-                                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                             >
                                 Cancel
                             </button>

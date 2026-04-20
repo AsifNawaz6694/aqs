@@ -3,6 +3,10 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    # Increase max input vars for large quotation forms
+    php_value max_input_vars 10000
+
+
     RewriteEngine On
 
     # Handle Authorization Header

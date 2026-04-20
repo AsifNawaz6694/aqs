@@ -1,6 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Card, Button, Badge, Input, Select, EmptyState } from '@/Components/Form';
+import MultiSelect from '@/Components/MultiSelect';
 import { useState } from 'react';
 
 interface Product {
@@ -47,8 +48,8 @@ export default function Index({ products, categories, filters }: Props) {
     const [deleteModal, setDeleteModal] = useState<Product | null>(null);
     const [filterValues, setFilterValues] = useState({
         search: filters.search || '',
-        category: filters.category || '',
-        status: filters.status || '',
+        category: filters.category ? filters.category.split(',') : [] as string[],
+        status: filters.status ? filters.status.split(',') : [] as string[],
         price_min: filters.price_min || '',
         price_max: filters.price_max || '',
     });
@@ -61,7 +62,11 @@ export default function Index({ products, categories, filters }: Props) {
         e.preventDefault();
         const params: Record<string, string> = {};
         Object.entries(filterValues).forEach(([key, value]) => {
-            if (value) params[key] = value;
+            if (Array.isArray(value)) {
+                if (value.length > 0) params[key] = value.join(',');
+            } else if (value) {
+                params[key] = value;
+            }
         });
         router.get(route('products.index'), params, { preserveState: true });
     };
@@ -82,8 +87,8 @@ export default function Index({ products, categories, filters }: Props) {
     const clearFilters = () => {
         setFilterValues({
             search: '',
-            category: '',
-            status: '',
+            category: [],
+            status: [],
             price_min: '',
             price_max: '',
         });
@@ -171,7 +176,7 @@ export default function Index({ products, categories, filters }: Props) {
                         {hasPermission('products.create') && (
                             <Link
                                 href={route('products.create')}
-                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-sm font-medium shadow-lg shadow-violet-500/30 hover:from-violet-700 hover:to-purple-700 transition-all"
+                                className="rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-700 hover:to-purple-700 shadow-lg shadow-violet-500/30 transition-all inline-flex items-center gap-2"
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -215,26 +220,26 @@ export default function Index({ products, categories, filters }: Props) {
                                     onChange={(e) => setFilterValues({ ...filterValues, search: e.target.value })}
                                     placeholder="Name, SKU..."
                                 />
-                                <Select
+                                <MultiSelect
                                     label="Category"
+                                    options={categories.map(c => ({ value: c, label: c }))}
                                     value={filterValues.category}
-                                    onChange={(e) => setFilterValues({ ...filterValues, category: e.target.value })}
-                                >
-                                    <option value="">All Categories</option>
-                                    {categories.map((cat) => (
-                                        <option key={cat} value={cat}>{cat}</option>
-                                    ))}
-                                </Select>
-                                <Select
+                                    onChange={(val) => setFilterValues({ ...filterValues, category: val })}
+                                    placeholder="All Categories"
+                                    searchPlaceholder="Search categories..."
+                                />
+                                <MultiSelect
                                     label="Status"
+                                    options={[
+                                        { value: 'active', label: 'Active', color: 'bg-emerald-100 text-emerald-700' },
+                                        { value: 'inactive', label: 'Inactive', color: 'bg-red-100 text-red-700' },
+                                        { value: 'discontinued', label: 'Discontinued', color: 'bg-slate-100 text-slate-500' },
+                                    ]}
                                     value={filterValues.status}
-                                    onChange={(e) => setFilterValues({ ...filterValues, status: e.target.value })}
-                                >
-                                    <option value="">All Statuses</option>
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
-                                    <option value="discontinued">Discontinued</option>
-                                </Select>
+                                    onChange={(val) => setFilterValues({ ...filterValues, status: val })}
+                                    placeholder="All Statuses"
+                                    searchable={false}
+                                />
                                 <Input
                                     label="Min Price"
                                     type="number"
@@ -268,13 +273,13 @@ export default function Index({ products, categories, filters }: Props) {
                 <Card padding="none">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-slate-200">
-                            <thead className="bg-slate-50">
+                            <thead className="bg-slate-50/80">
                                 <tr>
-                                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                    <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Product
                                     </th>
                                     <th
-                                        className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
+                                        className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
                                         onClick={() => handleSort('sku')}
                                     >
                                         <div className="flex items-center gap-1">
@@ -282,7 +287,7 @@ export default function Index({ products, categories, filters }: Props) {
                                         </div>
                                     </th>
                                     <th
-                                        className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
+                                        className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
                                         onClick={() => handleSort('category')}
                                     >
                                         <div className="flex items-center gap-1">
@@ -290,7 +295,7 @@ export default function Index({ products, categories, filters }: Props) {
                                         </div>
                                     </th>
                                     <th
-                                        className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
+                                        className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
                                         onClick={() => handleSort('price')}
                                     >
                                         <div className="flex items-center gap-1">
@@ -298,17 +303,17 @@ export default function Index({ products, categories, filters }: Props) {
                                         </div>
                                     </th>
                                     <th
-                                        className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
+                                        className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-700"
                                         onClick={() => handleSort('stock_quantity')}
                                     >
                                         <div className="flex items-center gap-1">
                                             Stock {getSortIcon('stock_quantity')}
                                         </div>
                                     </th>
-                                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                    <th className="px-5 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Status
                                     </th>
-                                    <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                    <th className="px-5 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                         Actions
                                     </th>
                                 </tr>
@@ -364,11 +369,20 @@ export default function Index({ products, categories, filters }: Props) {
                                             </Badge>
                                         </td>
                                         <td className="whitespace-nowrap px-6 py-4 text-right">
-                                            <div className="flex justify-end gap-2">
+                                            <div className="flex justify-end gap-1">
+                                                <Link
+                                                    href={route('products.show', product.id)}
+                                                    className="w-8 h-8 rounded-lg text-slate-500 hover:text-violet-600 hover:bg-violet-50 transition-colors inline-flex items-center justify-center"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                    </svg>
+                                                </Link>
                                                 {hasPermission('products.edit') && (
                                                     <Link
                                                         href={route('products.edit', product.id)}
-                                                        className="p-2 rounded-lg text-slate-600 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                                                        className="w-8 h-8 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors inline-flex items-center justify-center"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -378,7 +392,7 @@ export default function Index({ products, categories, filters }: Props) {
                                                 {hasPermission('products.delete') && (
                                                     <button
                                                         onClick={() => setDeleteModal(product)}
-                                                        className="p-2 rounded-lg text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                        className="w-8 h-8 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors inline-flex items-center justify-center"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -433,7 +447,7 @@ export default function Index({ products, categories, filters }: Props) {
                                             link.active
                                                 ? 'bg-violet-600 text-white'
                                                 : link.url
-                                                ? 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                                                ? 'text-slate-600 hover:bg-slate-200'
                                                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                         }`}
                                         preserveState

@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class SendQuotationEmail implements ShouldQueue
@@ -36,8 +37,15 @@ class SendQuotationEmail implements ShouldQueue
      */
     public function handle(): void
     {
+        Log::info('Sending quotation email', [
+            'quotation_number' => $this->quotation->quotation_number,
+            'email' => $this->email,
+            'sender_id' => $this->sender->id,
+        ]);
+
         // Generate PDF first if not exists
         if (!$this->quotation->pdf_path || !file_exists(storage_path('app/' . $this->quotation->pdf_path))) {
+            Log::info('Generating PDF before email send', ['quotation_number' => $this->quotation->quotation_number]);
             GenerateQuotationPdf::dispatchSync($this->quotation, $this->sender);
             $this->quotation->refresh();
         }
@@ -80,6 +88,12 @@ class SendQuotationEmail implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
+        Log::error('Quotation email sending failed', [
+            'quotation_number' => $this->quotation->quotation_number,
+            'email' => $this->email,
+            'error' => $exception->getMessage(),
+        ]);
+
         ActivityLog::log(
             'email_failed',
             "Failed to send quotation {$this->quotation->quotation_number} to {$this->email}: {$exception->getMessage()}",

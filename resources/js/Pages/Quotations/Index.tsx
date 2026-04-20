@@ -1,5 +1,6 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import MultiSelect from '@/Components/MultiSelect';
 import { useState } from 'react';
 import axios from 'axios';
 
@@ -91,9 +92,9 @@ export default function Index({ quotations, clients = [], users = [], statuses =
     const [isChangingStatus, setIsChangingStatus] = useState(false);
     const [filterValues, setFilterValues] = useState({
         search: filters.search || '',
-        status: filters.status || '',
-        client_id: filters.client_id || '',
-        user_id: filters.user_id || '',
+        status: filters.status ? filters.status.split(',') : [] as string[],
+        client_id: filters.client_id ? filters.client_id.split(',') : [] as string[],
+        user_id: filters.user_id ? filters.user_id.split(',') : [] as string[],
         date_from: filters.date_from || '',
         date_to: filters.date_to || '',
     });
@@ -115,8 +116,10 @@ export default function Index({ quotations, clients = [], users = [], statuses =
             // Only include date filters if they've been explicitly modified
             if (key === 'date_from' || key === 'date_to') {
                 if (value && datesModified[key as 'date_from' | 'date_to']) {
-                    params[key] = value;
+                    params[key] = value as string;
                 }
+            } else if (Array.isArray(value)) {
+                if (value.length > 0) params[key] = value.join(',');
             } else if (value) {
                 params[key] = value;
             }
@@ -186,9 +189,9 @@ export default function Index({ quotations, clients = [], users = [], statuses =
     const clearFilters = () => {
         setFilterValues({
             search: '',
-            status: '',
-            client_id: '',
-            user_id: '',
+            status: [],
+            client_id: [],
+            user_id: [],
             date_from: '',
             date_to: '',
         });
@@ -196,7 +199,11 @@ export default function Index({ quotations, clients = [], users = [], statuses =
         router.get(route('quotations.index'));
     };
 
-    const hasActiveFilters = Object.values(filters).some((v) => v && v !== 'created_at' && v !== 'desc');
+    const hasActiveFilters = Object.entries(filterValues).some(([key, v]) => {
+        if (key === 'date_from' || key === 'date_to') return datesModified[key as 'date_from' | 'date_to'] && !!v;
+        if (Array.isArray(v)) return v.length > 0;
+        return !!v;
+    });
 
     const getSortIcon = (field: string) => {
         if (filters.sort !== field) return '↕';
@@ -319,48 +326,41 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
-                                        <select
+                                        <MultiSelect
+                                            label="Status"
+                                            options={[
+                                                { value: 'draft', label: 'Draft', color: 'bg-slate-100 text-slate-700' },
+                                                { value: 'pending_review', label: 'Pending Review', color: 'bg-amber-100 text-amber-700' },
+                                                { value: 'approved', label: 'Approved', color: 'bg-emerald-100 text-emerald-700' },
+                                                { value: 'sent', label: 'Sent', color: 'bg-blue-100 text-blue-700' },
+                                                { value: 'accepted', label: 'Accepted', color: 'bg-green-100 text-green-700' },
+                                                { value: 'rejected', label: 'Rejected', color: 'bg-red-100 text-red-700' },
+                                                { value: 'expired', label: 'Expired', color: 'bg-gray-100 text-gray-500' },
+                                                { value: 'cancelled', label: 'Cancelled', color: 'bg-gray-100 text-gray-500' },
+                                            ]}
                                             value={filterValues.status}
-                                            onChange={(e) => setFilterValues({ ...filterValues, status: e.target.value })}
-                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
-                                        >
-                                            <option value="">All Statuses</option>
-                                            <option value="draft">Draft</option>
-                                            <option value="pending_review">Pending Review</option>
-                                            <option value="approved">Approved</option>
-                                            <option value="sent">Sent</option>
-                                            <option value="accepted">Accepted (Won)</option>
-                                            <option value="rejected">Rejected (Lost)</option>
-                                            <option value="expired">Expired</option>
-                                            <option value="cancelled">Cancelled</option>
-                                        </select>
+                                            onChange={(val) => setFilterValues({ ...filterValues, status: val })}
+                                            placeholder="All Statuses"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">Client</label>
-                                        <select
+                                        <MultiSelect
+                                            label="Client"
+                                            options={clients.map(c => ({ value: c.id.toString(), label: c.display_name }))}
                                             value={filterValues.client_id}
-                                            onChange={(e) => setFilterValues({ ...filterValues, client_id: e.target.value })}
-                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
-                                        >
-                                            <option value="">All Clients</option>
-                                            {clients.map((client) => (
-                                                <option key={client.id} value={client.id}>{client.display_name}</option>
-                                            ))}
-                                        </select>
+                                            onChange={(val) => setFilterValues({ ...filterValues, client_id: val })}
+                                            placeholder="All Clients"
+                                            searchPlaceholder="Search clients..."
+                                        />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">Sales Rep</label>
-                                        <select
+                                        <MultiSelect
+                                            label="Sales Rep"
+                                            options={users.map(u => ({ value: u.id.toString(), label: u.name }))}
                                             value={filterValues.user_id}
-                                            onChange={(e) => setFilterValues({ ...filterValues, user_id: e.target.value })}
-                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
-                                        >
-                                            <option value="">All Users</option>
-                                            {users.map((user) => (
-                                                <option key={user.id} value={user.id}>{user.name}</option>
-                                            ))}
-                                        </select>
+                                            onChange={(val) => setFilterValues({ ...filterValues, user_id: val })}
+                                            placeholder="All Users"
+                                        />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-2">Date From</label>

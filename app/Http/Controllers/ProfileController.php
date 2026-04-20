@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Profile;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
@@ -62,28 +64,47 @@ class ProfileController extends Controller
             'postal_code' => ['nullable', 'string', 'max:20'],
         ]);
 
-        $user = $request->user();
+        try {
+            $user = $request->user();
+            $oldData = ['name' => $user->name, 'email' => $user->email];
 
-        // Update user basic info
-        $user->fill([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-        ]);
+            // Update user basic info
+            $user->fill([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+            ]);
 
-        if ($user->isDirty('email')) {
-            $user->email_verified_at = null;
+            $emailChanged = $user->isDirty('email');
+            if ($emailChanged) {
+                $user->email_verified_at = null;
+            }
+
+            $user->save();
+
+            // Update profile
+            $profileData = collect($validated)->except(['name', 'email'])->toArray();
+            $user->profile()->updateOrCreate(
+                ['user_id' => $user->id],
+                $profileData
+            );
+
+            Log::info('Profile updated', ['user_id' => $user->id, 'email_changed' => $emailChanged]);
+
+            ActivityLog::log(
+                'updated',
+                "Updated profile information",
+                $user,
+                $user,
+                ['email_changed' => $emailChanged],
+                ['old' => $oldData, 'new' => ['name' => $validated['name'], 'email' => $validated['email']]],
+                'profile'
+            );
+
+            return Redirect::route('profile.edit')->with('status', 'Profile updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating profile: ' . $e->getMessage(), ['user_id' => $request->user()->id]);
+            return back()->with('error', 'Failed to update profile. Please try again.');
         }
-
-        $user->save();
-
-        // Update profile
-        $profileData = collect($validated)->except(['name', 'email'])->toArray();
-        $user->profile()->updateOrCreate(
-            ['user_id' => $user->id],
-            $profileData
-        );
-
-        return Redirect::route('profile.edit')->with('status', 'Profile updated successfully.');
     }
 
     /**
@@ -95,23 +116,40 @@ class ProfileController extends Controller
             'avatar' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048'],
         ]);
 
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        // Delete old avatar if exists
-        if ($user->profile?->avatar_path) {
-            Storage::disk('public')->delete($user->profile->avatar_path);
+            // Delete old avatar if exists
+            if ($user->profile?->avatar_path) {
+                Storage::disk('public')->delete($user->profile->avatar_path);
+            }
+
+            // Store new avatar
+            $path = $request->file('avatar')->store('avatars', 'public');
+
+            // Update profile
+            $user->profile()->updateOrCreate(
+                ['user_id' => $user->id],
+                ['avatar_path' => $path]
+            );
+
+            Log::info('Avatar updated', ['user_id' => $user->id]);
+
+            ActivityLog::log(
+                'updated',
+                "Updated profile avatar",
+                $user,
+                $user,
+                [],
+                [],
+                'profile'
+            );
+
+            return Redirect::route('profile.edit')->with('status', 'Avatar updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating avatar: ' . $e->getMessage(), ['user_id' => $request->user()->id]);
+            return back()->with('error', 'Failed to update avatar. Please try again.');
         }
-
-        // Store new avatar
-        $path = $request->file('avatar')->store('avatars', 'public');
-
-        // Update profile
-        $user->profile()->updateOrCreate(
-            ['user_id' => $user->id],
-            ['avatar_path' => $path]
-        );
-
-        return Redirect::route('profile.edit')->with('status', 'Avatar updated successfully.');
     }
 
     /**
@@ -119,14 +157,31 @@ class ProfileController extends Controller
      */
     public function deleteAvatar(Request $request): RedirectResponse
     {
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        if ($user->profile?->avatar_path) {
-            Storage::disk('public')->delete($user->profile->avatar_path);
-            $user->profile->update(['avatar_path' => null]);
+            if ($user->profile?->avatar_path) {
+                Storage::disk('public')->delete($user->profile->avatar_path);
+                $user->profile->update(['avatar_path' => null]);
+            }
+
+            Log::info('Avatar removed', ['user_id' => $user->id]);
+
+            ActivityLog::log(
+                'deleted',
+                "Removed profile avatar",
+                $user,
+                $user,
+                [],
+                [],
+                'profile'
+            );
+
+            return Redirect::route('profile.edit')->with('status', 'Avatar removed successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error removing avatar: ' . $e->getMessage(), ['user_id' => $request->user()->id]);
+            return back()->with('error', 'Failed to remove avatar. Please try again.');
         }
-
-        return Redirect::route('profile.edit')->with('status', 'Avatar removed successfully.');
     }
 
     /**
@@ -138,23 +193,40 @@ class ProfileController extends Controller
             'signature' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:1024'],
         ]);
 
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        // Delete old signature if exists
-        if ($user->profile?->signature_path) {
-            Storage::disk('public')->delete($user->profile->signature_path);
+            // Delete old signature if exists
+            if ($user->profile?->signature_path) {
+                Storage::disk('public')->delete($user->profile->signature_path);
+            }
+
+            // Store new signature
+            $path = $request->file('signature')->store('signatures', 'public');
+
+            // Update profile
+            $user->profile()->updateOrCreate(
+                ['user_id' => $user->id],
+                ['signature_path' => $path]
+            );
+
+            Log::info('Signature updated', ['user_id' => $user->id]);
+
+            ActivityLog::log(
+                'updated',
+                "Updated profile signature",
+                $user,
+                $user,
+                [],
+                [],
+                'profile'
+            );
+
+            return Redirect::route('profile.edit')->with('status', 'Signature updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating signature: ' . $e->getMessage(), ['user_id' => $request->user()->id]);
+            return back()->with('error', 'Failed to update signature. Please try again.');
         }
-
-        // Store new signature
-        $path = $request->file('signature')->store('signatures', 'public');
-
-        // Update profile
-        $user->profile()->updateOrCreate(
-            ['user_id' => $user->id],
-            ['signature_path' => $path]
-        );
-
-        return Redirect::route('profile.edit')->with('status', 'Signature updated successfully.');
     }
 
     /**
@@ -162,14 +234,31 @@ class ProfileController extends Controller
      */
     public function deleteSignature(Request $request): RedirectResponse
     {
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        if ($user->profile?->signature_path) {
-            Storage::disk('public')->delete($user->profile->signature_path);
-            $user->profile->update(['signature_path' => null]);
+            if ($user->profile?->signature_path) {
+                Storage::disk('public')->delete($user->profile->signature_path);
+                $user->profile->update(['signature_path' => null]);
+            }
+
+            Log::info('Signature removed', ['user_id' => $user->id]);
+
+            ActivityLog::log(
+                'deleted',
+                "Removed profile signature",
+                $user,
+                $user,
+                [],
+                [],
+                'profile'
+            );
+
+            return Redirect::route('profile.edit')->with('status', 'Signature removed successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error removing signature: ' . $e->getMessage(), ['user_id' => $request->user()->id]);
+            return back()->with('error', 'Failed to remove signature. Please try again.');
         }
-
-        return Redirect::route('profile.edit')->with('status', 'Signature removed successfully.');
     }
 
     /**
@@ -182,11 +271,30 @@ class ProfileController extends Controller
             'password' => ['required', Password::defaults(), 'confirmed'],
         ]);
 
-        $request->user()->update([
-            'password' => Hash::make($validated['password']),
-        ]);
+        try {
+            $user = $request->user();
 
-        return Redirect::route('profile.edit')->with('status', 'Password updated successfully.');
+            $user->update([
+                'password' => Hash::make($validated['password']),
+            ]);
+
+            Log::info('Password changed', ['user_id' => $user->id]);
+
+            ActivityLog::log(
+                'updated',
+                "Changed account password",
+                $user,
+                $user,
+                [],
+                [],
+                'profile'
+            );
+
+            return Redirect::route('profile.edit')->with('status', 'Password updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating password: ' . $e->getMessage(), ['user_id' => $request->user()->id]);
+            return back()->with('error', 'Failed to update password. Please try again.');
+        }
     }
 
     /**
@@ -199,24 +307,45 @@ class ProfileController extends Controller
         ]);
 
         $user = $request->user();
+        $userId = $user->id;
+        $userEmail = $user->email;
 
-        // Delete avatar and signature files
-        if ($user->profile) {
-            if ($user->profile->avatar_path) {
-                Storage::disk('public')->delete($user->profile->avatar_path);
+        try {
+            Log::warning('Account deletion initiated', ['user_id' => $userId, 'email' => $userEmail]);
+
+            ActivityLog::log(
+                'deleted',
+                "User account deleted: {$user->name} ({$userEmail})",
+                null,
+                $user,
+                ['user_id' => $userId, 'email' => $userEmail],
+                [],
+                'profile'
+            );
+
+            // Delete avatar and signature files
+            if ($user->profile) {
+                if ($user->profile->avatar_path) {
+                    Storage::disk('public')->delete($user->profile->avatar_path);
+                }
+                if ($user->profile->signature_path) {
+                    Storage::disk('public')->delete($user->profile->signature_path);
+                }
             }
-            if ($user->profile->signature_path) {
-                Storage::disk('public')->delete($user->profile->signature_path);
-            }
+
+            Auth::logout();
+
+            $user->delete();
+
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            Log::info('Account deleted successfully', ['user_id' => $userId, 'email' => $userEmail]);
+
+            return Redirect::to('/');
+        } catch (\Exception $e) {
+            Log::error('Error deleting account: ' . $e->getMessage(), ['user_id' => $userId]);
+            return back()->with('error', 'Failed to delete account. Please try again.');
         }
-
-        Auth::logout();
-
-        $user->delete();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
-        return Redirect::to('/');
     }
 }

@@ -15,7 +15,13 @@
       "Bash(chmod:*)",
       "Bash(curl:*)",
       "Bash(file:*)",
-      "Bash(php -r:*)"
+      "Bash(php -r:*)",
+      "Bash(npx vite *)",
+      "Bash(php -i)",
+      "Bash(xargs grep *)",
+      "Bash(php -v)",
+      "Bash(php -m)",
+      "Bash(ls \"C:/laragon/www/aqs-new/resources/js/Components/MultiSelect\"*)"
     ]
   }
 }

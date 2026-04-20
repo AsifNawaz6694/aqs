@@ -87,8 +87,8 @@ export default function Login({
                             <InputError message={errors.password} className="mt-2" />
                         </div>
 
-                        {/* Remember Me */}
-                        <div className="mb-6">
+                        {/* Remember Me & Forgot Password */}
+                        <div className="mb-6 flex items-center justify-between">
                             <label className="flex items-center">
                                 <input
                                     type="checkbox"
@@ -99,6 +99,12 @@ export default function Login({
                                 />
                                 <span className="ml-2 text-sm text-gray-600">Remember me</span>
                             </label>
+                            <a
+                                href={route('password.request')}
+                                className="text-sm text-indigo-500 hover:text-indigo-600"
+                            >
+                                Forgot password?
+                            </a>
                         </div>
 
                         {/* Submit Button */}

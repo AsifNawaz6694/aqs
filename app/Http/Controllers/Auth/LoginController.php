@@ -10,6 +10,7 @@ use App\Mail\TwoFactorCodeMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -43,6 +44,7 @@ class LoginController extends Controller
 
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
+            Log::warning('Login rate limit exceeded', ['email' => $request->email, 'ip' => $request->ip()]);
             return back()->withErrors([
                 'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
             ]);
@@ -75,6 +77,7 @@ class LoginController extends Controller
 
         // Check if user is active
         if ($user->status !== 'active') {
+            Log::warning('Inactive user login attempt', ['user_id' => $user->id, 'email' => $user->email, 'ip' => $request->ip()]);
             return back()->withErrors([
                 'email' => 'Your account has been deactivated. Please contact administrator.',
             ]);
@@ -82,6 +85,7 @@ class LoginController extends Controller
 
         // Check if password is set (for new users)
         if (!$user->password_set) {
+            Log::info('Login attempt by user without password setup', ['user_id' => $user->id, 'email' => $user->email]);
             return back()->withErrors([
                 'email' => 'Please set up your password using the link sent to your email.',
             ]);
@@ -97,6 +101,8 @@ class LoginController extends Controller
         // Generate and send 2FA code
         $twoFactorCode = TwoFactorCode::createForUser($user, 'login');
         Mail::to($user->email)->send(new TwoFactorCodeMail($user, $twoFactorCode));
+
+        Log::info('2FA code sent', ['user_id' => $user->id, 'email' => $user->email, 'ip' => $request->ip()]);
 
         // Redirect to 2FA verification
         return redirect()->route('2fa.verify');
@@ -156,6 +162,7 @@ class LoginController extends Controller
             ->first();
 
         if (!$twoFactorCode) {
+            Log::warning('Invalid 2FA code attempt', ['user_id' => $user->id, 'ip' => $request->ip()]);
             return back()->withErrors([
                 'code' => 'Invalid or expired verification code.',
             ]);
@@ -237,6 +244,8 @@ class LoginController extends Controller
         // Generate and send new code
         $twoFactorCode = TwoFactorCode::createForUser($user, 'login');
         Mail::to($user->email)->send(new TwoFactorCodeMail($user, $twoFactorCode));
+
+        Log::info('2FA code resent', ['user_id' => $user->id]);
 
         return response()->json([
             'success' => true,
@@ -325,6 +334,18 @@ class LoginController extends Controller
             'password_setup_token_expires_at' => null,
             'email_verified_at' => now(),
         ]);
+
+        Log::info('Password setup completed', ['user_id' => $user->id, 'email' => $user->email]);
+
+        ActivityLog::log(
+            'password_setup',
+            "User completed password setup: {$user->name}",
+            $user,
+            $user,
+            ['email' => $user->email],
+            [],
+            'authentication'
+        );
 
         return redirect()->route('login')
             ->with('status', 'Password set successfully. You can now login.');

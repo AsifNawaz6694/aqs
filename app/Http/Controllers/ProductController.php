@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -31,14 +32,16 @@ class ProductController extends Controller
             });
         }
 
-        // Filter by category
+        // Filter by category (supports comma-separated multi-select)
         if ($request->filled('category')) {
-            $query->where('category', $request->category);
+            $categories = array_filter(explode(',', $request->category));
+            $query->whereIn('category', $categories);
         }
 
-        // Filter by status
+        // Filter by status (supports comma-separated multi-select)
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $statuses = array_filter(explode(',', $request->status));
+            $query->whereIn('status', $statuses);
         }
 
         // Filter by price range
@@ -102,41 +105,48 @@ class ProductController extends Controller
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        // Handle image upload
-        $imagePath = null;
-        if ($request->hasFile('image')) {
-            $image = $request->file('image');
-            $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-            $imagePath = $image->storeAs('products', $filename, 'public');
+        try {
+            // Handle image upload
+            $imagePath = null;
+            if ($request->hasFile('image')) {
+                $image = $request->file('image');
+                $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
+                $imagePath = $image->storeAs('products', $filename, 'public');
+            }
+
+            $product = Product::create([
+                'name' => $validated['name'],
+                'sku' => $validated['sku'],
+                'description' => $validated['description'] ?? null,
+                'category' => $validated['category'],
+                'price' => $validated['price'],
+                'cost_price' => $validated['cost_price'] ?? null,
+                'stock_quantity' => $validated['stock_quantity'],
+                'min_stock_quantity' => $validated['min_stock_quantity'] ?? 0,
+                'unit' => $validated['unit'] ?? 'piece',
+                'specifications' => $validated['specifications'] ?? null,
+                'status' => $validated['status'],
+                'image_path' => $imagePath,
+                'created_by' => auth()->id(),
+            ]);
+
+            Log::info('Product created', ['product_id' => $product->id, 'sku' => $product->sku, 'user_id' => auth()->id()]);
+
+            ActivityLog::log(
+                'created',
+                "Created product {$product->name}",
+                $product,
+                auth()->user(),
+                [],
+                [],
+                'products'
+            );
+
+            return redirect()->route('products.index')->with('success', 'Product created successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error creating product: ' . $e->getMessage(), ['user_id' => auth()->id(), 'sku' => $validated['sku'] ?? null]);
+            return back()->withInput()->with('error', 'Failed to create product. Please try again.');
         }
-
-        $product = Product::create([
-            'name' => $validated['name'],
-            'sku' => $validated['sku'],
-            'description' => $validated['description'] ?? null,
-            'category' => $validated['category'],
-            'price' => $validated['price'],
-            'cost_price' => $validated['cost_price'] ?? null,
-            'stock_quantity' => $validated['stock_quantity'],
-            'min_stock_quantity' => $validated['min_stock_quantity'] ?? 0,
-            'unit' => $validated['unit'] ?? 'piece',
-            'specifications' => $validated['specifications'] ?? null,
-            'status' => $validated['status'],
-            'image_path' => $imagePath,
-            'created_by' => auth()->id(),
-        ]);
-
-        ActivityLog::log(
-            'created',
-            "Created product {$product->name}",
-            $product,
-            auth()->user(),
-            [],
-            [],
-            'products'
-        );
-
-        return redirect()->route('products.index')->with('success', 'Product created successfully.');
     }
 
     /**
@@ -182,45 +192,52 @@ class ProductController extends Controller
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        // Handle image upload
-        if ($request->hasFile('image')) {
-            // Delete old image
-            if ($product->image_path) {
-                Storage::disk('public')->delete($product->image_path);
+        try {
+            // Handle image upload
+            if ($request->hasFile('image')) {
+                // Delete old image
+                if ($product->image_path) {
+                    Storage::disk('public')->delete($product->image_path);
+                }
+
+                $image = $request->file('image');
+                $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
+                $validated['image_path'] = $image->storeAs('products', $filename, 'public');
             }
 
-            $image = $request->file('image');
-            $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-            $validated['image_path'] = $image->storeAs('products', $filename, 'public');
+            $product->update([
+                'name' => $validated['name'],
+                'sku' => $validated['sku'],
+                'description' => $validated['description'] ?? null,
+                'category' => $validated['category'],
+                'price' => $validated['price'],
+                'cost_price' => $validated['cost_price'] ?? null,
+                'stock_quantity' => $validated['stock_quantity'],
+                'min_stock_quantity' => $validated['min_stock_quantity'] ?? 0,
+                'unit' => $validated['unit'] ?? $product->unit,
+                'specifications' => $validated['specifications'] ?? $product->specifications,
+                'status' => $validated['status'],
+                'image_path' => $validated['image_path'] ?? $product->image_path,
+                'updated_by' => auth()->id(),
+            ]);
+
+            Log::info('Product updated', ['product_id' => $product->id, 'sku' => $product->sku, 'user_id' => auth()->id()]);
+
+            ActivityLog::log(
+                'updated',
+                "Updated product {$product->name}",
+                $product,
+                auth()->user(),
+                [],
+                [],
+                'products'
+            );
+
+            return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error updating product: ' . $e->getMessage(), ['product_id' => $product->id, 'user_id' => auth()->id()]);
+            return back()->withInput()->with('error', 'Failed to update product. Please try again.');
         }
-
-        $product->update([
-            'name' => $validated['name'],
-            'sku' => $validated['sku'],
-            'description' => $validated['description'] ?? null,
-            'category' => $validated['category'],
-            'price' => $validated['price'],
-            'cost_price' => $validated['cost_price'] ?? null,
-            'stock_quantity' => $validated['stock_quantity'],
-            'min_stock_quantity' => $validated['min_stock_quantity'] ?? 0,
-            'unit' => $validated['unit'] ?? $product->unit,
-            'specifications' => $validated['specifications'] ?? $product->specifications,
-            'status' => $validated['status'],
-            'image_path' => $validated['image_path'] ?? $product->image_path,
-            'updated_by' => auth()->id(),
-        ]);
-
-        ActivityLog::log(
-            'updated',
-            "Updated product {$product->name}",
-            $product,
-            auth()->user(),
-            [],
-            [],
-            'products'
-        );
-
-        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
     }
 
     /**
@@ -228,25 +245,33 @@ class ProductController extends Controller
      */
     public function destroy(Product $product)
     {
-        // Delete image if exists
-        if ($product->image_path) {
-            Storage::disk('public')->delete($product->image_path);
+        try {
+            // Delete image if exists
+            if ($product->image_path) {
+                Storage::disk('public')->delete($product->image_path);
+            }
+
+            $productName = $product->name;
+            $productId = $product->id;
+            $product->delete();
+
+            Log::info('Product deleted', ['product_id' => $productId, 'product_name' => $productName, 'user_id' => auth()->id()]);
+
+            ActivityLog::log(
+                'deleted',
+                "Deleted product {$productName}",
+                null,
+                auth()->user(),
+                ['product_name' => $productName],
+                [],
+                'products'
+            );
+
+            return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
+        } catch (\Exception $e) {
+            Log::error('Error deleting product: ' . $e->getMessage(), ['product_id' => $product->id, 'user_id' => auth()->id()]);
+            return back()->with('error', 'Failed to delete product. Please try again.');
         }
-
-        $productName = $product->name;
-        $product->delete();
-
-        ActivityLog::log(
-            'deleted',
-            "Deleted product {$productName}",
-            null,
-            auth()->user(),
-            ['product_name' => $productName],
-            [],
-            'products'
-        );
-
-        return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
     }
 
     /**
@@ -254,6 +279,7 @@ class ProductController extends Controller
      */
     public function export(Request $request): StreamedResponse
     {
+        try {
         $query = Product::query();
 
         // Apply filters
@@ -273,6 +299,18 @@ class ProductController extends Controller
 
         $products = $query->get();
         $filename = 'products-' . date('Y-m-d-His') . '.csv';
+
+        Log::info('Products exported', ['user_id' => auth()->id(), 'count' => $products->count(), 'filename' => $filename]);
+
+        ActivityLog::log(
+            'exported',
+            "Exported {$products->count()} products to CSV",
+            null,
+            auth()->user(),
+            ['count' => $products->count(), 'filename' => $filename],
+            [],
+            'products'
+        );
 
         $headers = [
             'Content-Type' => 'text/csv',
@@ -318,6 +356,10 @@ class ProductController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+        } catch (\Exception $e) {
+            Log::error('Error exporting products: ' . $e->getMessage(), ['user_id' => auth()->id()]);
+            return back()->with('error', 'Failed to export products. Please try again.');
+        }
     }
 
     /**
@@ -372,11 +414,19 @@ class ProductController extends Controller
                 );
                 $imported++;
             } catch (\Exception $e) {
+                Log::warning("Product import row {$row} failed: " . $e->getMessage());
                 $errors[] = "Row {$row}: " . $e->getMessage();
             }
         }
 
         fclose($handle);
+
+        Log::info('Product import completed', [
+            'user_id' => auth()->id(),
+            'imported' => $imported,
+            'errors' => count($errors),
+            'filename' => $file->getClientOriginalName(),
+        ]);
 
         ActivityLog::log(
             'imported',

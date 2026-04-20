@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Reader\Csv;
@@ -31,17 +32,34 @@ class FileParserService
     public function parse(UploadedFile $file): array
     {
         $extension = strtolower($file->getClientOriginalExtension());
+        $filename = $file->getClientOriginalName();
+
+        Log::info('File parsing started', ['filename' => $filename, 'extension' => $extension, 'size' => $file->getSize()]);
 
         if (!in_array($extension, $this->supportedExtensions)) {
+            Log::warning('Unsupported file format attempted', ['filename' => $filename, 'extension' => $extension]);
             throw new \Exception("Unsupported file format. Supported formats: " . implode(', ', $this->supportedExtensions));
         }
 
-        return match ($extension) {
-            'xlsx', 'xls' => $this->parseExcel($file),
-            'csv' => $this->parseCsv($file),
-            'docx' => $this->parseWord($file),
-            default => throw new \Exception("Unsupported file format: {$extension}"),
-        };
+        try {
+            $result = match ($extension) {
+                'xlsx', 'xls' => $this->parseExcel($file),
+                'csv' => $this->parseCsv($file),
+                'docx' => $this->parseWord($file),
+                default => throw new \Exception("Unsupported file format: {$extension}"),
+            };
+
+            Log::info('File parsed successfully', [
+                'filename' => $filename,
+                'rows' => $result['total_rows'] ?? 0,
+                'columns' => $result['total_columns'] ?? 0,
+            ]);
+
+            return $result;
+        } catch (\Exception $e) {
+            Log::error('File parsing failed', ['filename' => $filename, 'extension' => $extension, 'error' => $e->getMessage()]);
+            throw $e;
+        }
     }
 
     /**
