@@ -21,14 +21,18 @@ class ProductController extends Controller
     {
         $query = Product::query();
 
-        // Search
+        // Search across all visible columns
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('sku', 'like', "%{$search}%")
                   ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhere('category', 'like', "%{$search}%");
+                  ->orWhere('category', 'like', "%{$search}%")
+                  ->orWhere('unit', 'like', "%{$search}%")
+                  ->orWhere('status', 'like', "%{$search}%")
+                  ->orWhere('price', 'like', "%{$search}%")
+                  ->orWhere('stock_quantity', 'like', "%{$search}%");
             });
         }
 

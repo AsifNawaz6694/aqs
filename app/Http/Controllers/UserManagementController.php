@@ -26,14 +26,18 @@ class UserManagementController extends Controller
         try {
             $query = User::with(['role', 'profile']);
 
-            // Search filter
+            // Search across all visible columns
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
                       ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('status', 'like', "%{$search}%")
                       ->orWhereHas('profile', function ($pq) use ($search) {
                           $pq->where('company_name', 'like', "%{$search}%");
+                      })
+                      ->orWhereHas('role', function ($rq) use ($search) {
+                          $rq->where('name', 'like', "%{$search}%");
                       });
                 });
             }

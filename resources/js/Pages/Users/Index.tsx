@@ -274,10 +274,12 @@ export default function UsersIndex({ users, roles, filters = {}, success, error 
                                         </svg>
                                         <input
                                             type="text"
-                                            placeholder="Search users by name, email, company..."
+                                            placeholder="Search all columns..."
                                             value={search}
                                             onChange={(e) => handleSearchChange(e.target.value)}
-                                            className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
+                                            className={`w-full pl-10 pr-10 py-2.5 rounded-lg border text-sm transition-colors focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white ${
+                                                search ? 'border-violet-300 bg-white' : 'border-transparent bg-slate-100 hover:border-slate-300'
+                                            }`}
                                         />
                                         {isLoading && (
                                             <div className="absolute right-3 top-1/2 -translate-y-1/2">

@@ -55,10 +55,21 @@ class ActivityLogController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
-        // Search in description
+        // Search across all visible columns
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->where('description', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+                $q->where('description', 'like', "%{$search}%")
+                  ->orWhere('event', 'like', "%{$search}%")
+                  ->orWhere('module', 'like', "%{$search}%")
+                  ->orWhere('subject_type', 'like', "%{$search}%")
+                  ->orWhere('log_name', 'like', "%{$search}%")
+                  ->orWhere('ip_address', 'like', "%{$search}%")
+                  ->orWhereHasMorph('causer', [User::class], function ($q) use ($search) {
+                      $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                  });
+            });
         }
 
         $logs = $query->paginate(25)->withQueryString();
@@ -175,7 +186,18 @@ class ActivityLogController extends Controller
             }
             if ($request->filled('search')) {
                 $search = $request->search;
-                $query->where('description', 'like', "%{$search}%");
+                $query->where(function ($q) use ($search) {
+                    $q->where('description', 'like', "%{$search}%")
+                      ->orWhere('event', 'like', "%{$search}%")
+                      ->orWhere('module', 'like', "%{$search}%")
+                      ->orWhere('subject_type', 'like', "%{$search}%")
+                      ->orWhere('log_name', 'like', "%{$search}%")
+                      ->orWhere('ip_address', 'like', "%{$search}%")
+                      ->orWhereHasMorph('causer', [User::class], function ($q) use ($search) {
+                          $q->where('name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%");
+                      });
+                });
             }
 
             $logs = $query->get();

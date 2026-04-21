@@ -57,17 +57,25 @@ class QuotationController extends Controller
             $query->whereDate('quotation_date', '<=', $request->date_to);
         }
 
-        // Search
+        // Search across all visible columns
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('quotation_number', 'like', "%{$search}%")
                     ->orWhere('title', 'like', "%{$search}%")
                     ->orWhere('reference', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhere('currency', 'like', "%{$search}%")
+                    ->orWhere('grand_total', 'like', "%{$search}%")
+                    ->orWhere('quotation_date', 'like', "%{$search}%")
+                    ->orWhere('valid_until', 'like', "%{$search}%")
                     ->orWhereHas('client', function ($q) use ($search) {
                         $q->where('company_name', 'like', "%{$search}%")
                             ->orWhere('name', 'like', "%{$search}%")
                             ->orWhere('contact_person', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('user', function ($q) use ($search) {
+                        $q->where('name', 'like', "%{$search}%");
                     });
             });
         }

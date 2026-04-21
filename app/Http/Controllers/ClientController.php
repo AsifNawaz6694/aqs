@@ -21,15 +21,20 @@ class ClientController extends Controller
         try {
             $query = Client::query();
 
-            // Search
+            // Search across all visible columns
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('company_name', 'like', "%{$search}%")
+                      ->orWhere('name', 'like', "%{$search}%")
                       ->orWhere('contact_first_name', 'like', "%{$search}%")
                       ->orWhere('contact_last_name', 'like', "%{$search}%")
                       ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%");
+                      ->orWhere('phone', 'like', "%{$search}%")
+                      ->orWhere('city', 'like', "%{$search}%")
+                      ->orWhere('country', 'like', "%{$search}%")
+                      ->orWhere('type', 'like', "%{$search}%")
+                      ->orWhere('status', 'like', "%{$search}%");
                 });
             }
 

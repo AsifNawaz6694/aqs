@@ -20,12 +20,57 @@ class RoleController extends Controller
     {
         $query = Role::query()->withCount(['users', 'permissions']);
 
-        // Search
+        // Search across all visible columns
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%");
+                  ->orWhere('slug', 'like', "%{$search}%")
+                  ->orWhere('description', 'like', "%{$search}%")
+                  ->orWhere('level', 'like', "%{$search}%");
+            });
+        }
+
+        // Type filter (system / custom)
+        if ($request->filled('type')) {
+            $types = array_filter(explode(',', $request->type));
+            $query->where(function ($q) use ($types) {
+                if (in_array('system', $types)) $q->orWhere('is_system', true);
+                if (in_array('custom', $types)) $q->orWhere('is_system', false);
+            });
+        }
+
+        // Level multi-select
+        if ($request->filled('level')) {
+            $levels = array_filter(explode(',', $request->level), fn($v) => $v !== '');
+            if (count($levels)) {
+                $query->whereIn('level', $levels);
+            }
+        }
+
+        // Level range
+        if ($request->filled('level_min')) {
+            $query->where('level', '>=', (int) $request->level_min);
+        }
+        if ($request->filled('level_max')) {
+            $query->where('level', '<=', (int) $request->level_max);
+        }
+
+        // Usage filter (with-users / no-users)
+        if ($request->filled('usage')) {
+            $usages = array_filter(explode(',', $request->usage));
+            $query->where(function ($q) use ($usages) {
+                if (in_array('with_users', $usages)) $q->orHas('users');
+                if (in_array('no_users', $usages)) $q->orDoesntHave('users');
+            });
+        }
+
+        // Permissions presence filter
+        if ($request->filled('permissions_state')) {
+            $states = array_filter(explode(',', $request->permissions_state));
+            $query->where(function ($q) use ($states) {
+                if (in_array('with_permissions', $states)) $q->orHas('permissions');
+                if (in_array('no_permissions', $states)) $q->orDoesntHave('permissions');
             });
         }
 
@@ -40,9 +85,15 @@ class RoleController extends Controller
 
         $roles = $query->paginate(10)->withQueryString();
 
+        $availableLevels = Role::distinct()->orderBy('level')->pluck('level')->values();
+
         return Inertia::render('Roles/Index', [
             'roles' => $roles,
-            'filters' => $request->only(['search', 'sort', 'direction']),
+            'availableLevels' => $availableLevels,
+            'filters' => $request->only([
+                'search', 'type', 'level', 'level_min', 'level_max',
+                'usage', 'permissions_state', 'sort', 'direction',
+            ]),
         ]);
     }
 

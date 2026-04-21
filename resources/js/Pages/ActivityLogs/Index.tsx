@@ -1,7 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import MultiSelect from '@/Components/MultiSelect';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 
 /* ─── Types ─── */
@@ -96,33 +96,58 @@ export default function Index({ logs, users, events, subjectTypes, modules, filt
     }, []);
 
     const [datesModified, setDatesModified] = useState({ date_from: !!filters.date_from, date_to: !!filters.date_to });
+    const [search, setSearch] = useState(filters.search || '');
+    const [isSearching, setIsSearching] = useState(false);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [filterValues, setFilterValues] = useState({
         user_id: filters.user_id ? filters.user_id.split(',') : [] as string[],
         event: filters.event ? filters.event.split(',') : [] as string[],
         subject_type: filters.subject_type ? filters.subject_type.split(',') : [] as string[],
         module: filters.module ? filters.module.split(',') : [] as string[],
-        date_from: filters.date_from || '', date_to: filters.date_to || '', search: filters.search || '',
+        date_from: filters.date_from || '', date_to: filters.date_to || '',
     });
 
     const hasPermission = (p: string) => auth.user?.permissions?.includes(p);
 
+    const buildParams = (overrides: Partial<{ search: string }> = {}) => {
+        const params: Record<string, string> = {};
+        const s = overrides.search ?? search;
+        if (s) params.search = s;
+        if (filterValues.user_id.length) params.user_id = filterValues.user_id.join(',');
+        if (filterValues.event.length) params.event = filterValues.event.join(',');
+        if (filterValues.subject_type.length) params.subject_type = filterValues.subject_type.join(',');
+        if (filterValues.module.length) params.module = filterValues.module.join(',');
+        if (filterValues.date_from && datesModified.date_from) params.date_from = filterValues.date_from;
+        if (filterValues.date_to && datesModified.date_to) params.date_to = filterValues.date_to;
+        return params;
+    };
+
+    const applyFilters = useCallback((params: Record<string, string>) => {
+        router.get(route('activity-logs.index'), params, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['logs', 'filters'],
+            onFinish: () => setIsSearching(false),
+        });
+    }, []);
+
+    const handleSearchChange = (value: string) => {
+        setSearch(value);
+        setIsSearching(true);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            applyFilters(buildParams({ search: value }));
+        }, 300);
+    };
+
     const handleFilter = (e: React.FormEvent) => {
         e.preventDefault();
-        const params: Record<string, string> = {};
-        Object.entries(filterValues).forEach(([key, value]) => {
-            if (key === 'date_from' || key === 'date_to') {
-                if (value && datesModified[key as 'date_from' | 'date_to']) params[key] = value as string;
-            } else if (Array.isArray(value) && value.length > 0) {
-                params[key] = value.join(',');
-            } else if (value && !Array.isArray(value)) {
-                params[key] = value;
-            }
-        });
-        router.get(route('activity-logs.index'), params, { preserveState: true });
+        applyFilters(buildParams());
     };
 
     const clearFilters = () => {
-        setFilterValues({ user_id: [], event: [], subject_type: [], module: [], date_from: '', date_to: '', search: '' });
+        setSearch('');
+        setFilterValues({ user_id: [], event: [], subject_type: [], module: [], date_from: '', date_to: '' });
         setDatesModified({ date_from: false, date_to: false });
         router.get(route('activity-logs.index'));
     };
@@ -210,11 +235,6 @@ export default function Index({ logs, users, events, subjectTypes, modules, filt
                             <p className="text-violet-200 mt-1">Complete audit trail and background job monitoring</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <button onClick={() => setShowFilters(!showFilters)}
-                                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${showFilters || hasActiveFilters ? 'bg-white text-violet-700 shadow-lg' : 'bg-white/15 text-white hover:bg-white/25 backdrop-blur-sm border border-white/20'}`}>
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
-                                Filters {activeFilterCount > 0 && <span className="bg-white text-violet-700 rounded-full px-2 py-0.5 text-xs font-bold">{activeFilterCount}</span>}
-                            </button>
                             {hasPermission('activity-logs.export') && (
                                 <a href={route('activity-logs.export', filters)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/25">
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
@@ -225,15 +245,41 @@ export default function Index({ logs, users, events, subjectTypes, modules, filt
                     </div>
                 </div>
 
+                {/* ═══ SEARCH + FILTER TOGGLE ═══ */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="relative flex-1">
+                        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => handleSearchChange(e.target.value)}
+                            placeholder="Search all columns..."
+                            className={`w-full h-11 pl-10 pr-10 rounded-xl border bg-white text-sm transition-colors focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 ${
+                                search ? 'border-violet-300 bg-white' : 'border-transparent bg-slate-100 hover:border-slate-300 focus:bg-white'
+                            }`}
+                        />
+                        {isSearching && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${showFilters || hasActiveFilters ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/25' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
+                        Filters {activeFilterCount > 0 && <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${showFilters || hasActiveFilters ? 'bg-white text-violet-700' : 'bg-violet-100 text-violet-700'}`}>{activeFilterCount}</span>}
+                    </button>
+                </div>
+
                 {/* ═══ FILTERS ═══ */}
                 {showFilters && (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 animate-in">
                         <form onSubmit={handleFilter}>
                             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Search</label>
-                                    <input type="text" value={filterValues.search} onChange={(e) => setFilterValues({ ...filterValues, search: e.target.value })} placeholder="Search in description..." className="w-full h-11 px-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-sm" />
-                                </div>
                                 <MultiSelect label="User" options={users.map(u => ({ value: u.id.toString(), label: u.name }))} value={filterValues.user_id} onChange={val => setFilterValues({ ...filterValues, user_id: val })} placeholder="All Users" searchPlaceholder="Search users..." />
                                 <MultiSelect label="Event" options={events.map(e => ({ value: e, label: e.charAt(0).toUpperCase() + e.slice(1), color: eventStyles[e] ? `${eventStyles[e].bg} ${eventStyles[e].text}` : undefined }))} value={filterValues.event} onChange={val => setFilterValues({ ...filterValues, event: val })} placeholder="All Events" />
                                 <MultiSelect label="Module" options={modules.map(m => ({ value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))} value={filterValues.module} onChange={val => setFilterValues({ ...filterValues, module: val })} placeholder="All Modules" />

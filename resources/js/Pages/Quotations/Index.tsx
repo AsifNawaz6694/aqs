@@ -1,7 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import MultiSelect from '@/Components/MultiSelect';
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
 
 // Helper to get today's date in YYYY-MM-DD format
@@ -90,8 +90,10 @@ export default function Index({ quotations, clients = [], users = [], statuses =
     const [newStatus, setNewStatus] = useState('');
     const [statusNotes, setStatusNotes] = useState('');
     const [isChangingStatus, setIsChangingStatus] = useState(false);
+    const [search, setSearch] = useState(filters.search || '');
+    const [isSearching, setIsSearching] = useState(false);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [filterValues, setFilterValues] = useState({
-        search: filters.search || '',
         status: filters.status ? filters.status.split(',') : [] as string[],
         client_id: filters.client_id ? filters.client_id.split(',') : [] as string[],
         user_id: filters.user_id ? filters.user_id.split(',') : [] as string[],
@@ -109,22 +111,39 @@ export default function Index({ quotations, clients = [], users = [], statuses =
         return auth.user?.permissions?.includes(permission);
     };
 
+    const buildParams = (overrides: Partial<{ search: string }> = {}) => {
+        const params: Record<string, string> = {};
+        const s = overrides.search ?? search;
+        if (s) params.search = s;
+        if (filterValues.status.length) params.status = filterValues.status.join(',');
+        if (filterValues.client_id.length) params.client_id = filterValues.client_id.join(',');
+        if (filterValues.user_id.length) params.user_id = filterValues.user_id.join(',');
+        if (filterValues.date_from && datesModified.date_from) params.date_from = filterValues.date_from;
+        if (filterValues.date_to && datesModified.date_to) params.date_to = filterValues.date_to;
+        return params;
+    };
+
+    const applyFilters = useCallback((params: Record<string, string>) => {
+        router.get(route('quotations.index'), params, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['quotations', 'filters'],
+            onFinish: () => setIsSearching(false),
+        });
+    }, []);
+
+    const handleSearchChange = (value: string) => {
+        setSearch(value);
+        setIsSearching(true);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            applyFilters(buildParams({ search: value }));
+        }, 300);
+    };
+
     const handleFilter = (e: React.FormEvent) => {
         e.preventDefault();
-        const params: Record<string, string> = {};
-        Object.entries(filterValues).forEach(([key, value]) => {
-            // Only include date filters if they've been explicitly modified
-            if (key === 'date_from' || key === 'date_to') {
-                if (value && datesModified[key as 'date_from' | 'date_to']) {
-                    params[key] = value as string;
-                }
-            } else if (Array.isArray(value)) {
-                if (value.length > 0) params[key] = value.join(',');
-            } else if (value) {
-                params[key] = value;
-            }
-        });
-        router.get(route('quotations.index'), params, { preserveState: true });
+        applyFilters(buildParams());
     };
 
     const handleDateChange = (field: 'date_from' | 'date_to', value: string) => {
@@ -187,8 +206,8 @@ export default function Index({ quotations, clients = [], users = [], statuses =
     };
 
     const clearFilters = () => {
+        setSearch('');
         setFilterValues({
-            search: '',
             status: [],
             client_id: [],
             user_id: [],
@@ -199,11 +218,12 @@ export default function Index({ quotations, clients = [], users = [], statuses =
         router.get(route('quotations.index'));
     };
 
-    const hasActiveFilters = Object.entries(filterValues).some(([key, v]) => {
-        if (key === 'date_from' || key === 'date_to') return datesModified[key as 'date_from' | 'date_to'] && !!v;
-        if (Array.isArray(v)) return v.length > 0;
-        return !!v;
-    });
+    const hasActiveFilters =
+        filterValues.status.length > 0 ||
+        filterValues.client_id.length > 0 ||
+        filterValues.user_id.length > 0 ||
+        (datesModified.date_from && !!filterValues.date_from) ||
+        (datesModified.date_to && !!filterValues.date_to);
 
     const getSortIcon = (field: string) => {
         if (filters.sort !== field) return '↕';
@@ -268,24 +288,6 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                                 </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                <button
-                                    onClick={() => setShowFilters(!showFilters)}
-                                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
-                                        showFilters || hasActiveFilters
-                                            ? 'bg-violet-100 text-violet-700 ring-1 ring-violet-200'
-                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                    }`}
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                                    </svg>
-                                    Filters
-                                    {hasActiveFilters && (
-                                        <span className="rounded-full bg-violet-600 px-2 py-0.5 text-xs text-white">
-                                            Active
-                                        </span>
-                                    )}
-                                </button>
                                 {hasPermission('quotations.export') && (
                                     <a
                                         href={route('quotations.export', filters)}
@@ -311,20 +313,51 @@ export default function Index({ quotations, clients = [], users = [], statuses =
                             </div>
                         </div>
 
+                        {/* Search + Filter toggle */}
+                        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div className="relative flex-1">
+                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => handleSearchChange(e.target.value)}
+                                    placeholder="Search all columns..."
+                                    className={`w-full h-11 pl-10 pr-10 rounded-xl border text-sm transition-colors focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 ${
+                                        search ? 'border-violet-300 bg-white' : 'border-transparent bg-slate-100 hover:border-slate-300 focus:bg-white'
+                                    }`}
+                                />
+                                {isSearching && (
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                        <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+                                    </div>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setShowFilters(!showFilters)}
+                                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+                                    showFilters || hasActiveFilters
+                                        ? 'bg-violet-100 text-violet-700 ring-1 ring-violet-200'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                                </svg>
+                                Filters
+                                {hasActiveFilters && (
+                                    <span className="rounded-full bg-violet-600 px-2 py-0.5 text-xs text-white">
+                                        Active
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+
                         {/* Filters */}
                         {showFilters && (
                             <form onSubmit={handleFilter} className="mb-6 rounded-xl bg-slate-50 border border-slate-200 p-5">
-                                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">Search</label>
-                                        <input
-                                            type="text"
-                                            value={filterValues.search}
-                                            onChange={(e) => setFilterValues({ ...filterValues, search: e.target.value })}
-                                            placeholder="Quotation number..."
-                                            className="block w-full h-11 px-4 rounded-xl border-slate-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 text-sm"
-                                        />
-                                    </div>
+                                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                                     <div>
                                         <MultiSelect
                                             label="Status"

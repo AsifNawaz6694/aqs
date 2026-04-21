@@ -1,8 +1,8 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Input, Button, Badge, Card, EmptyState } from '@/Components/Form';
+import { Button, Badge, Card, EmptyState } from '@/Components/Form';
 import MultiSelect from '@/Components/MultiSelect';
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 
 interface Client {
     id: number;
@@ -48,8 +48,10 @@ export default function Index({ clients, cities, countries, filters }: Props) {
     const { auth, flash } = usePage().props as any;
     const [showFilters, setShowFilters] = useState(false);
     const [deleteModal, setDeleteModal] = useState<Client | null>(null);
+    const [search, setSearch] = useState(filters.search || '');
+    const [isSearching, setIsSearching] = useState(false);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [filterValues, setFilterValues] = useState({
-        search: filters.search || '',
         type: filters.type ? filters.type.split(',') : [] as string[],
         status: filters.status ? filters.status.split(',') : [] as string[],
         city: filters.city ? filters.city.split(',') : [] as string[],
@@ -60,17 +62,44 @@ export default function Index({ clients, cities, countries, filters }: Props) {
         return auth.user?.permissions?.includes(permission);
     };
 
+    const buildParams = (overrides: Partial<{ search: string; type: string[]; status: string[]; city: string[]; country: string[] }> = {}) => {
+        const merged = {
+            search: overrides.search ?? search,
+            type: overrides.type ?? filterValues.type,
+            status: overrides.status ?? filterValues.status,
+            city: overrides.city ?? filterValues.city,
+            country: overrides.country ?? filterValues.country,
+        };
+        const params: Record<string, string> = {};
+        if (merged.search) params.search = merged.search;
+        if (merged.type.length) params.type = merged.type.join(',');
+        if (merged.status.length) params.status = merged.status.join(',');
+        if (merged.city.length) params.city = merged.city.join(',');
+        if (merged.country.length) params.country = merged.country.join(',');
+        return params;
+    };
+
+    const applyFilters = useCallback((params: Record<string, string>) => {
+        router.get(route('clients.index'), params, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['clients', 'filters'],
+            onFinish: () => setIsSearching(false),
+        });
+    }, []);
+
+    const handleSearchChange = (value: string) => {
+        setSearch(value);
+        setIsSearching(true);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+            applyFilters(buildParams({ search: value }));
+        }, 300);
+    };
+
     const handleFilter = (e: React.FormEvent) => {
         e.preventDefault();
-        const params: Record<string, string> = {};
-        Object.entries(filterValues).forEach(([key, value]) => {
-            if (Array.isArray(value) && value.length > 0) {
-                params[key] = value.join(',');
-            } else if (typeof value === 'string' && value) {
-                params[key] = value;
-            }
-        });
-        router.get(route('clients.index'), params, { preserveState: true });
+        applyFilters(buildParams());
     };
 
     const handleSort = (field: string) => {
@@ -87,8 +116,8 @@ export default function Index({ clients, cities, countries, filters }: Props) {
     };
 
     const clearFilters = () => {
+        setSearch('');
         setFilterValues({
-            search: '',
             type: [],
             status: [],
             city: [],
@@ -97,7 +126,11 @@ export default function Index({ clients, cities, countries, filters }: Props) {
         router.get(route('clients.index'));
     };
 
-    const hasActiveFilters = Object.values(filters).some((v) => v && v !== 'created_at' && v !== 'desc');
+    const hasActiveFilters =
+        filterValues.type.length > 0 ||
+        filterValues.status.length > 0 ||
+        filterValues.city.length > 0 ||
+        filterValues.country.length > 0;
 
     const getSortIcon = (field: string) => {
         if (filters.sort !== field) {
@@ -156,22 +189,6 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                             </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <Button
-                                variant={showFilters || hasActiveFilters ? 'primary' : 'secondary'}
-                                onClick={() => setShowFilters(!showFilters)}
-                                icon={
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                                    </svg>
-                                }
-                            >
-                                Filters
-                                {hasActiveFilters && (
-                                    <span className="ml-1 px-1.5 py-0.5 text-xs bg-white/20 rounded-md">
-                                        Active
-                                    </span>
-                                )}
-                            </Button>
                             {hasPermission('clients.export') && (
                                 <a href={route('clients.export', filters)}>
                                     <Button
@@ -202,17 +219,49 @@ export default function Index({ clients, cities, countries, filters }: Props) {
                         </div>
                     </div>
 
+                    {/* Search + Filter toggle */}
+                    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div className="relative flex-1">
+                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={(e) => handleSearchChange(e.target.value)}
+                                placeholder="Search all columns..."
+                                className={`w-full h-11 pl-10 pr-10 rounded-xl border text-sm transition-colors focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 ${
+                                    search ? 'border-violet-300 bg-white' : 'border-transparent bg-slate-100 hover:border-slate-300 focus:bg-white'
+                                }`}
+                            />
+                            {isSearching && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                    <div className="w-4 h-4 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+                                </div>
+                            )}
+                        </div>
+                        <Button
+                            variant={showFilters || hasActiveFilters ? 'primary' : 'secondary'}
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                                </svg>
+                            }
+                        >
+                            Filters
+                            {hasActiveFilters && (
+                                <span className="ml-1 px-1.5 py-0.5 text-xs bg-white/20 rounded-md">
+                                    Active
+                                </span>
+                            )}
+                        </Button>
+                    </div>
+
                     {/* Filters */}
                     {showFilters && (
                         <form onSubmit={handleFilter} className="mb-6 p-5 rounded-xl bg-slate-50 border border-slate-200">
-                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                                <Input
-                                    label="Search"
-                                    type="text"
-                                    value={filterValues.search}
-                                    onChange={(e) => setFilterValues({ ...filterValues, search: e.target.value })}
-                                    placeholder="Name, email, phone..."
-                                />
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                                 <MultiSelect
                                     label="Type"
                                     options={[
